@@ -1,0 +1,16 @@
+# private development files - not part of the public repo
+_Archive/
+DICe_examples/
+
+# DIC Challenge image sets & third-party data - free to use with
+# attribution but not redistributed here (see 10_Challenge2/README.md)
+2D-Challenge 1.0/
+2D-Challenge 2.0/
+
+# MATLAB artifacts
+*.mat
+*.asv
+*.autosave
+
+# generated demo outputs
+9_Validation_DICe/stereo_demo_*.png
