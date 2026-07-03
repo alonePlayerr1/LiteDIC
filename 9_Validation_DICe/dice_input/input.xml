@@ -1,0 +1,26 @@
+<ParameterList>
+  <!-- Adapted from DICe tests/examples/full_field/input.xml (Sandia/NTESS)
+       to run the FULL 6_DIC loading series. Settings are kept identical to
+       the official example (subset 27, step 10) so frame 01 reproduces the
+       bundled gold file. Run from this folder:  dice -i input.xml -v  -->
+  <Parameter name="subset_file" type="string" value="./subsets.txt" />
+  <Parameter name="subset_size" type="int" value="27" />
+  <Parameter name="step_size" type="int" value="10" />
+  <Parameter name="output_folder" type="string" value="../dice_results/" />
+  <Parameter name="image_folder" type="string" value="../../6_DIC/" />
+  <Parameter name="reference_image" type="string" value="plate_ref.tiff" />
+  <ParameterList name="deformed_images">
+    <Parameter name="plate_def_01.tiff" type="bool" value="true" />
+    <Parameter name="plate_def_02.tiff" type="bool" value="true" />
+    <Parameter name="plate_def_03.tiff" type="bool" value="true" />
+    <Parameter name="plate_def_04.tiff" type="bool" value="true" />
+    <Parameter name="plate_def_05.tiff" type="bool" value="true" />
+    <Parameter name="plate_def_06.tiff" type="bool" value="true" />
+    <Parameter name="plate_def_07.tiff" type="bool" value="true" />
+    <Parameter name="plate_def_08.tiff" type="bool" value="true" />
+    <Parameter name="plate_def_09.tiff" type="bool" value="true" />
+    <Parameter name="plate_def_10.tiff" type="bool" value="true" />
+    <Parameter name="plate_def_11.tiff" type="bool" value="true" />
+  </ParameterList>
+  <Parameter name="correlation_parameters_file" type="string" value="params.xml" />
+</ParameterList>
