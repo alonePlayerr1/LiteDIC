@@ -1,5 +1,5 @@
-PROJECT TEST REPORT - 2026-07-30 18:48
-MATLAB 25.2.0.2998904 (R2025b) | mode: base | time: 110 s
+PROJECT TEST REPORT - 2026-07-30 21:10
+MATLAB 25.2.0.2998904 (R2025b) | mode: base | time: 108 s
 TOTAL: 131 PASS, 0 FAIL, 0 ERRORS
 
 --- CLT (plate_clt.m)
@@ -114,20 +114,20 @@ TOTAL: 131 PASS, 0 FAIL, 0 ERRORS
 [PASS] view0: donut fiducials: 3 (reference 3 .. 3)
 [PASS] view0: dots detected: 136 (reference 120 .. 160)
 [PASS] subset views calibrated: 8 (reference 8 .. 8)
-[PASS] fx, px: 6707.8 (reference 6650 .. 6735)
+[PASS] fx, px: 6706.8 (reference 6650 .. 6735)
 [PASS] fy/fx ratio: 0.9999 (reference 0.98 .. 1.02)
-[PASS] u0 in central 20%, px: 962.4 (reference 768 .. 1152)
-[PASS] v0 in central 20%, px: 653.1 (reference 480 .. 720)
-[PASS] reprojection RMS, px: 0.2003 (reference 0 .. 0.45)
-[PASS] fx agrees with DICe cal.xml (<3%): 0.0108 (reference 0 .. 0.03)
+[PASS] u0 in central 20%, px: 961.8 (reference 768 .. 1152)
+[PASS] v0 in central 20%, px: 653.8 (reference 480 .. 720)
+[PASS] reprojection RMS, px: 0.2384 (reference 0 .. 0.45)
+[PASS] fx agrees with DICe cal.xml (<3%): 0.0107 (reference 0 .. 0.03)
 --- Stereo extrinsics+triangulation (11_Stereo)
 [PASS] common stereo views: 9 (reference 8 .. 9)
-[PASS] rel rotation cam0->cam1, deg: 18.715 (reference 18.3 .. 19.1)
+[PASS] rel rotation cam0->cam1, deg: 18.719 (reference 18.3 .. 19.1)
 [PASS] baseline consistency CV, %: 0.000 (reference 0 .. 1.5)
-[PASS] triangulation planarity RMS, pitch: 0.0070 (reference 0 .. 0.02)
-[PASS] reconstructed pitch, units: 0.9996 (reference 0.99 .. 1.01)
-[PASS] reconstructed pitch CV, %: 0.335 (reference 0 .. 1)
-[PASS] anchored dot pitch (DICe mm), mm: 6.987 (reference 6.5 .. 7.6)
+[PASS] triangulation planarity RMS, pitch: 0.0022 (reference 0 .. 0.02)
+[PASS] reconstructed pitch, units: 0.9999 (reference 0.99 .. 1.01)
+[PASS] reconstructed pitch CV, %: 0.146 (reference 0 .. 1)
+[PASS] anchored dot pitch (DICe mm), mm: 6.986 (reference 6.5 .. 7.6)
 --- Stereo DIC vs DICe gold (11_Stereo)
 [PASS] matched points at gold centres: 103 (reference 95 .. 115)
 [PASS] gold pairs epipolar RMS (DICe cal.xml geometry), px: 0.140 (reference 0 .. 0.5)

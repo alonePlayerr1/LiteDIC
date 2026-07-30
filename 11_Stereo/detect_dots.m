@@ -19,6 +19,9 @@ function D = detect_dots(img, params)
 %     .rel_thr   relative-darkness threshold for a dot pixel, 0..1 (0.30)
 %     .donut_thr centre-brightness ratio above which a dot is a donut (0.30)
 %     .min_fill  minimum area / bounding-box-area fill ratio (0.45)
+%     .centre_pad  pixels added around a blob's bounding box before the
+%                subpixel centroid is taken (2). See the note there: the
+%                rim outside the threshold carries the subpixel signal.
 %     .area_lo   low  area cut as a fraction of the median dot area (0.40)
 %     .area_hi   high area cut as a fraction of the median dot area (2.50)
 %     .border    reject blobs within this many px of the image edge (2)
@@ -143,15 +146,34 @@ function D = detect_core(g, P)
     if isempty(dots), D = empty_result(); return; end
 
     % --- darkness-weighted subpixel centres ---
+    % Weighted over a PADDED WINDOW around each blob, not over the blob's own
+    % binary mask. The mask stops at whatever the threshold decided, which
+    % throws away the anti-aliased rim - the pixels that carry most of the
+    % subpixel information - and makes the centre move with the threshold.
+    % Pixels belonging to a neighbouring blob are excluded so a close pair
+    % cannot pull on each other; everything else in the window contributes by
+    % how dark it is, and paper contributes zero by construction.
     dk = max(bg - g, 0);
     nd = numel(dots);
     cx = zeros(nd, 1); cy = zeros(nd, 1);
+    pad = P.centre_pad;
     for i = 1:nd
-        m = (L == dots(i));
-        w = dk(m); [rr, cc] = find(m);
-        sw = sum(w);
-        cx(i) = sum(cc .* w) / sw;
-        cy(i) = sum(rr .* w) / sw;
+        d = dots(i);
+        r0 = max(1, y0(d) - pad); r1 = min(H, y1(d) + pad);
+        c0 = max(1, x0(d) - pad); c1 = min(W, x1(d) + pad);
+        w  = dk(r0:r1, c0:c1);
+        lw = L(r0:r1, c0:c1);
+        w(lw > 0 & lw ~= d) = 0;          % a neighbour's ink is not ours
+        sw = sum(w(:));
+        if sw <= 0                        % nothing above background: fall
+            m = (L == d);                 % back to the mask centroid
+            ww = dk(m); [rr, cc] = find(m);
+            cx(i) = sum(cc .* ww) / sum(ww);
+            cy(i) = sum(rr .* ww) / sum(ww);
+            continue;
+        end
+        cx(i) = c0 - 1 + sum((1:size(w,2)) .* sum(w, 1)) / sw;
+        cy(i) = r0 - 1 + sum((1:size(w,1)).' .* sum(w, 2)) / sw;
     end
 
     % --- donut fiducials by centre brightness (robust to ring breaks) ---
@@ -187,7 +209,8 @@ end
 function P = defaults(params)
     d = struct('bg_win', 61, 'rel_thr', 0.30, 'donut_thr', 0.30, ...
         'min_fill', 0.45, 'area_lo', 0.40, 'area_hi', 2.50, 'border', 2, ...
-        'board_win', 81, 'board_frac', 0.32, 'local_paper', false);
+        'board_win', 81, 'board_frac', 0.32, 'local_paper', false, ...
+        'centre_pad', 2);
     fn = fieldnames(d);
     for k = 1:numel(fn)
         if isfield(params, fn{k}) && ~isempty(params.(fn{k}))
