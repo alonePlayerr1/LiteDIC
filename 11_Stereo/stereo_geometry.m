@@ -52,17 +52,39 @@ function G = stereo_geometry(opts)
     G.K0 = S.K0; G.d0 = S.dist0;
     G.K1 = S.K1; G.d1 = S.dist1;
 
-    % ---- relative pose from the common calibration views ----
+    % ---- relative pose ----
+    % STEREO_EXTRINSICS averages the pose implied by each common view; the
+    % bundle adjustment SOLVES for one pose that fits every view at once,
+    % together with the intrinsics it has to be consistent with. Prefer it
+    % when it ran. E is kept either way - its per-view spread is the rig
+    % rigidity diagnostic, which a single fitted pose cannot report.
     E = stereo_extrinsics(S);
-    G.R = E.R; G.T = E.T(:);
     G.E = E;
+    if isfield(S, 'ba') && ~isempty(S.ba)
+        G.R = S.ba.R; G.T = S.ba.T(:);
+        G.pose_from = 'bundle adjustment';
+    else
+        G.R = E.R; G.T = E.T(:);
+        G.pose_from = 'per-view average';
+    end
 
     % ---- physical pitch anchored from DICe's mm baseline ----
     if isfile(dicecal)
         baseline_mm = dice_stereo_baseline(dicecal);
-        G.pitch_mm    = baseline_mm / E.baseline;
+        % against the baseline of the pose actually in use above, not the
+        % per-view average, or the anchor would scale a different geometry
+        G.pitch_mm    = baseline_mm / norm(G.T);
         G.baseline_mm = baseline_mm;
         G.T_mm        = G.T * G.pitch_mm;
+    elseif strcmp(dicecal, 'THIS_RIG_HAS_NO_DICE_CAL')
+        % Caller (e.g. run_stereo_dataset) deliberately has no DICe metric
+        % anchor: the physical scale comes from the calibration-target pitch
+        % instead, applied by the caller. Expected case: print a note, not a
+        % warning.
+        fprintf(['stereo_geometry: no DICe metric anchor requested; scale ' ...
+                 'comes from the target pitch (results in pitch units here, ' ...
+                 'converted by the caller).\n']);
+        G.pitch_mm = NaN; G.baseline_mm = NaN; G.T_mm = G.T * NaN;
     else
         warning('stereo_geometry:noDiceCal', ...
             '%s not found - metric scale unavailable, using pitch units.', dicecal);

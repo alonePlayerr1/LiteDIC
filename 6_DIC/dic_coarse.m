@@ -25,15 +25,13 @@ this_dir = fileparts(mfilename('fullpath'));
 if isempty(this_dir), this_dir = pwd; end
 d_ref = dir(fullfile(this_dir, ref_pattern));
 d_def = dir(fullfile(this_dir, def_pattern));
-def_names = setdiff(sort({d_def.name}), {d_ref.name});
+def_names = setdiff(sort_frames({d_def.name}), {d_ref.name}, 'stable');
 if isempty(d_ref) || isempty(def_names)
     error('Image series not found: %s / %s in %s.', ref_pattern, def_pattern, this_dir);
 end
-ref_image = imread(fullfile(this_dir, d_ref(1).name));
-def_image = imread(fullfile(this_dir, def_names{end}));
 fprintf('Pair: %s -> %s\n', d_ref(1).name, def_names{end});
-ref_image = to_gray(ref_image) / 255;
-def_image = to_gray(def_image) / 255;
+ref_image = read_gray(fullfile(this_dir, d_ref(1).name));
+def_image = read_gray(fullfile(this_dir, def_names{end}));
 image_size = size(ref_image);
 if ~isequal(size(def_image), image_size)
     error('Image sizes do not match.');
@@ -152,7 +150,7 @@ title('Displacement vector field'); xlabel('X'); ylabel('Y'); hold off;
 
 % ===== Local functions =====
 function g = to_gray(img)
-    if ndims(img) == 3 && size(img,3) == 3
+    if ndims(img) == 3 && size(img,3) >= 3   % >= 3: RGBA PNGs work too
         img = double(img);
         g = 0.2989*img(:,:,1) + 0.5870*img(:,:,2) + 0.1140*img(:,:,3);
     else
@@ -165,4 +163,31 @@ function P = sym_pad(A, p)
     ri = [p:-1:1, 1:r, r:-1:r-p+1];
     ci = [p:-1:1, 1:c, c:-1:c-p+1];
     P = A(ri, ci);
+end
+
+function g = read_gray(pathname)
+% Grayscale double in [0..1] for any bit depth: integer classes scaled by
+% their OWN intmax (uint8 -> /255, uint16 -> /65535, ...); floats above 1
+% scaled by their max. Same as /255 for 8-bit input.
+    I = imread(pathname);
+    if isinteger(I), s = double(intmax(class(I))); else, s = 1; end
+    g = to_gray(I) / s;
+    mx = max(g(:));
+    if mx > 1, g = g / mx; end
+end
+
+function names = sort_frames(names)
+% Chronological sort: by the trailing number before the extension when
+% every name has one (img_2 < img_10), lexicographic otherwise. Zero-padded
+% series sort identically either way.
+    if isempty(names), return; end
+    t = regexp(names, '(\d+)\.[^.]*$', 'tokens', 'once');
+    has = ~cellfun(@isempty, t);
+    if all(has)
+        num = cellfun(@(c) str2double(c{1}), t);
+        [~, o] = sort(num);
+        names = names(o);
+    else
+        names = sort(names);
+    end
 end

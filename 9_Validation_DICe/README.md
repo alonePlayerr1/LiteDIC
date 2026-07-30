@@ -7,6 +7,12 @@ series is byte-identical to DICe's official `full_field` example
 (`tests/examples/full_field`), and DICe publishes a gold solution file
 for it. That file is bundled here, so the validation needs no DICe install.
 
+`COMPARISON_DICe.md` in this folder is the qualitative companion: a source-level
+comparison of the two correlation kernels (solver scheme, criterion, shape functions,
+interpolation, initialisation, quality metrics), what each code has that the other does
+not, and how to position LiteDIC in the paper. This README and `validate_dice.m`
+answer *how closely* the codes agree; that document answers *why they differ*.
+
 ## One-button run
 
 Open `validate_dice.m` and press Run (or use the START menu). The script:

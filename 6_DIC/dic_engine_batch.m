@@ -34,7 +34,6 @@ function R = dic_engine_batch(ref, cur, P)
     gy = (margin+1):P.grid_step:(Himg-margin);   % rows (Y)
     gx = (margin+1):P.grid_step:(Wimg-margin);   % columns (X)
     nY = numel(gy); nX = numel(gx);
-    N  = nY * nX;
 
     % mask of "black" subsets (identical to dic_engine)
     refmax = movmax(movmax(ref, P.subset_size, 1), P.subset_size, 2);

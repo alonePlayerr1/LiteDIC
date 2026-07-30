@@ -25,6 +25,16 @@ function D = detect_dots(img, params)
 %     .board_win window for the board (paper) mask, px (81)
 %     .board_frac board-mask level as a fraction of the 90th-pct brightness
 %                (0.32); masks out the dark surround and its boundary halo
+%     .local_paper board mask against a LOCAL paper estimate instead of the
+%                global 90th percentile (false); set internally by the
+%                escalation pass to survive strong vignetting
+%
+%   The detector is scale- and illumination-adaptive: if the first pass
+%   (tuned to the bundled AMCalB rig) fails to index as a dot lattice, it
+%   retries with windows scaled to the measured dot diameter and a local
+%   paper reference, keeping whichever result indexes best (see the
+%   escalation block below). Passing an explicit bg_win/board_win only
+%   changes the FIRST pass; escalation still applies when that pass fails.
 %
 %   Method: the local paper brightness is estimated with a separable
 %   moving maximum over a window larger than one dot (the same device
@@ -41,8 +51,57 @@ function D = detect_dots(img, params)
 
     if nargin < 2, params = struct(); end
     P = defaults(params);
-
     g = to_gray(img);
+
+    % ---- pass 1: as-tuned detection (global-paper board mask) ----
+    D = detect_core(g, P);
+
+    % ---- scale/illumination escalation ----
+    % The fixed windows assume dots smaller than bg_win and roughly uniform
+    % lighting (true for the bundled AMCalB rig). Real-world targets break
+    % both: dots larger than bg_win never see paper from their centres (ring
+    % blobs, broken donut scores) and strong vignetting pushes dark-corner
+    % paper below the GLOBAL board threshold, silently erasing whole regions
+    % of dots (StereoSample5 - Cal12x9: 81%/38% of calibration views lost
+    % this way). When the first pass does not index as a dot lattice, retry
+    % with windows scaled to the measured dot diameter and a LOCAL paper
+    % reference, keeping whichever result indexes best. Views the tuned
+    % pass already handles give identical results, bundled calibration sets
+    % and their tests unchanged.
+    best_s = lattice_score(D);
+    if best_s < 30
+        T = D; Pt = P; Pt.local_paper = true;
+        for pass = 1:2
+            if isfinite(T.diam) && T.diam > 0
+                Pt.bg_win = 2 * ceil(1.25 * T.diam) + 1;
+            else
+                Pt.bg_win = 4 * P.bg_win + 1;
+            end
+            Pt.board_win = 2 * ceil(0.66 * Pt.bg_win) + 1;
+            T = detect_core(g, Pt);
+            s = lattice_score(T);
+            if s > best_s, D = T; best_s = s; end
+            if best_s >= 30 || ~(isfinite(T.diam) && T.diam > 0.6 * Pt.bg_win)
+                break;   % indexes well, or windows already fit the dots
+            end
+        end
+    end
+end
+
+function s = lattice_score(D)
+% How well a detection indexes as a dot-grid lattice: the number of dots
+% INDEX_GRID can assign to integer grid positions (0 when the 3-donut
+% frame is missing). 30+ counts as a confidently indexed target view -
+% the same bar the mixed-folder classification in RUN_STEREO_DATASET uses.
+    s = 0;
+    if size(D.donut_xy, 1) == 3 && D.n >= 12 && isfinite(D.spacing)
+        G = index_grid(D);
+        s = G.n;
+    end
+end
+
+function D = detect_core(g, P)
+% One detection pass at fixed window sizes .
     [H, W] = size(g);
 
     % --- background flatten: local paper brightness, then relative darkness
@@ -54,10 +113,18 @@ function D = detect_dots(img, params)
     % bright but the pixels themselves are dark surround. That band is one
     % large connected region that would otherwise dominate - and drastically
     % slow - component labeling on views with a big dark border.
-    paper = prctile_(g, 90);
-    lm    = movmean(movmean(g, P.board_win, 1), P.board_win, 2);
-    board = lm > P.board_frac * paper;
-    bw    = (rel > P.rel_thr) & board;
+    lm = movmean(movmean(g, P.board_win, 1), P.board_win, 2);
+    if P.local_paper
+        % LOCAL paper reference (escalation passes): the smoothed moving-max
+        % background instead of one global percentile, so paper in a dark
+        % vignetted corner still counts as board. The halo band stays
+        % excluded (its local mean is dark against nearby bright paper).
+        board = lm > P.board_frac * movmean(movmean(bg, P.board_win, 1), ...
+            P.board_win, 2);
+    else
+        board = lm > P.board_frac * prctile_(g, 90);
+    end
+    bw = (rel > P.rel_thr) & board;
 
     % --- connected components (4-connected) ---
     [L, n] = cc_label(bw);
@@ -120,7 +187,7 @@ end
 function P = defaults(params)
     d = struct('bg_win', 61, 'rel_thr', 0.30, 'donut_thr', 0.30, ...
         'min_fill', 0.45, 'area_lo', 0.40, 'area_hi', 2.50, 'border', 2, ...
-        'board_win', 81, 'board_frac', 0.32);
+        'board_win', 81, 'board_frac', 0.32, 'local_paper', false);
     fn = fieldnames(d);
     for k = 1:numel(fn)
         if isfield(params, fn{k}) && ~isempty(params.(fn{k}))
@@ -181,7 +248,8 @@ function [L, n] = cc_label(bw)
 end
 
 function [x0, x1, y0, y1] = blob_bbox(L, n)
-    x0 = zeros(n,1); x1 = x0; y0 = x0; y1 = x0;
+    % (no zeros(n,1) preallocation: all four are assigned outright by
+    % accumarray below, which returns an n x 1 column even for empty input)
     [rr, cc] = find(L > 0);
     lab = L(L > 0);
     x0 = accumarray(lab, cc, [n 1], @min);

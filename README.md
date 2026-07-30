@@ -10,6 +10,12 @@ Toolbox).
 Quick start: open `START.m` in MATLAB and press Run. A launcher menu opens;
 every analysis is one button.
 
+`DICe_examples/` holds local working copies of the two canonical real-world
+datasets (mono 2D large-motion series, stereo tension test) used to validate
+`6_DIC`/`11_Stereo` against real data. It is git-ignored - the canonical
+location is `C:\Users\gaing\DIC\`; restore the working copies from there if
+this folder is ever missing.
+
 ## Contents
 
 | Folder | Script | What it does |
@@ -27,6 +33,8 @@ every analysis is one button.
 | `8_FEM_beam` | `beam_fem.m` | Transient FE vibration of a cantilever beam (PDE Toolbox) |
 | `9_Validation_DICe` | `validate_dice.m` | One-button validation of the subpixel engine against DICe's official gold solution |
 | `10_Challenge2` | `challenge2_benchmark.m` | Noise floor, spatial resolution and MEI on the DIC Challenge 2.0 Star images (images downloaded separately, see its README) |
+| `12_Datasets` | `gen_dataset.m` | Factory of synthetic speckle pairs with EXACT dense ground truth (analytic pattern, interpolation-free warp) for training and testing DIC / DL-DIC |
+| `13_Validator` | `validate_external.m` | Audit of any third-party DIC field (universal CSV import) against the bundled DICe gold: bias/RMS verdict, error maps, text report |
 
 ## The DIC engine (`6_DIC`)
 
@@ -94,8 +102,13 @@ Checkpoints I keep for myself while developing:
       pattern, subset-independent - the measured driver of the Star 6
       long-period amplitude excess; mini version in RUN_TESTS (51 checks)
 - [ ] FE comparison of the hole-plate strain fields
-- [ ] mm/px calibration, then stereo calibration
-- [ ] Stereo (3D) DIC on a two-camera sample
+- [x] mm/px calibration, then stereo calibration (`dic_scale.m`,
+      `11_Stereo/calibrate_cameras.m` - toolbox-free Zhang on a dot target)
+- [x] Stereo (3D) DIC on a two-camera sample (`11_Stereo/`, validated
+      against DICe's stereo gold; demo on the GT4 application pair)
+- [x] Surface strain from the stereo 3D points (`11_Stereo/surf_strain.m`:
+      local tangent-plane least squares, Green-Lagrange; synthetic
+      regression tests - rigid body = zero strain, known stretch recovered)
 - [ ] CPU parallelization (per-frame and zone-based propagation)
 
 Everything is CPU-only by design: the target machine is an ordinary laptop

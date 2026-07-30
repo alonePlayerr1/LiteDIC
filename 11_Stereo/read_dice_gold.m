@@ -15,7 +15,7 @@ function T = read_dice_gold(f)
 
     fid = fopen(f, 'r');
     if fid < 0, error('read_dice_gold:open', 'cannot open %s', f); end
-    hdr = '';
+    % (no hdr = '' guard: the loop either sets hdr and breaks, or errors out)
     while true
         ln = fgetl(fid);
         if ~ischar(ln)

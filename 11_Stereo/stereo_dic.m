@@ -64,7 +64,8 @@ function S = stereo_dic(files0, files1, G, P)
     if isfield(P, 'zncc_min_cross') && ~isempty(P.zncc_min_cross)
         Pc.zncc_min = P.zncc_min_cross;
     end
-    Pt = rmf(Pt, {'search_temporal', 'zncc_min_cross', 'max_global'});
+    Pt = rmf(Pt, {'search_temporal', 'zncc_min_cross', 'max_global', ...
+                  'shift_prior', 'shift_win'});
     Pc = rmf(Pc, {'search_temporal', 'zncc_min_cross'});
 
     pitch_mm = G.pitch_mm;
@@ -92,11 +93,27 @@ function S = stereo_dic(files0, files1, G, P)
     S.frames(1).d3D_mm = zeros(size(Xref));
 
     % ---- deformed states ----
+    % Each frame's cross-camera pre-alignment is sought near the LAST
+    % ACCEPTED one, starting from the reference pair's. The rig is rigid, so
+    % that offset drifts (<= 25 px in dx, <= 1 px in dy between consecutive
+    % frames, measured over 230 frames) but never jumps; see
+    % STEREO_PAIR_MATCH for the measured failure mode this guards against.
+    % Chaining tracks the drift, and because a frame with no credible peak
+    % returns the prior unchanged (shift_ok false) instead of a boundary
+    % artefact, a bad frame cannot poison the prior for the frames after it.
+    % P.shift_win overrides the window.
+    Pc.shift_prior = Dr.shift;
+    nfallback = 0;
     for k = 2:nf
         I0 = load_gray(files0{k});
         I1 = load_gray(files1{k});
 
         Dk = stereo_pair_match(I0, I1, Pc);      % cross field of frame k
+        if Dk.shift_ok
+            Pc.shift_prior = Dk.shift;           % advance only on a real peak
+        else
+            nfallback = nfallback + 1;
+        end
         Rk = dic_engine(I0r, I0, Pt);            % temporal, camera 0
 
         % temporal displacement interpolated onto the reference grid
@@ -121,6 +138,13 @@ function S = stereo_dic(files0, files1, G, P)
     end
 
     S.G = G; S.P = P;
+    S.n_shift_fallback = nfallback;   % frames with no credible global peak
+    if nfallback > 0
+        fprintf(['stereo_dic: %d of %d frames had no credible global ' ...
+            'pre-alignment peak inside the prior window - the previous ' ...
+            'accepted shift was reused for those (see stereo_pair_match).\n'], ...
+            nfallback, nf - 1);
+    end
 end
 
 % ---------------------------------------------------------------------

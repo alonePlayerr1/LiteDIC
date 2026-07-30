@@ -16,12 +16,41 @@ function R = dic_engine(ref, cur, P)
 %     P.zncc_min      minimum quality; points below are rejected
 %     P.max_iter      IC-GN iteration cap
 %     P.conv_tol      convergence tolerance on ||dp||, px
+%     P.roi           optional [x y w h] region of interest, px; the grid
+%                     is restricted to nodes inside it (default: full frame)
+%     P.seed_shift    optional [sx sy] coarse prior shift, px: the integer
+%                     seed search of +/-search_range is CENTERED on it, so
+%                     large rigid-body motion (hundreds of px) can be
+%                     handled by an external coarse estimator without
+%                     enlarging the search window (default: [0 0])
+%     P.seed_xy       optional [x y] preferred seed location, px: the seed
+%                     becomes the speckle grid node nearest to that point
+%                     instead of the grid center - callers can place it on
+%                     the best-textured spot (default: grid center)
+%     P.mask          optional full-frame boolean the SAME size as `ref`:
+%                     grid nodes whose pixel is false are excluded (kept
+%                     NaN), on top of P.roi and the black-region mask. Lets
+%                     an arbitrary AOI - e.g. a polygon that cuts out
+%                     fixtures/grips/glare - be passed in without changing
+%                     the rectangular P.roi. Absent/empty = no extra mask
+%                     (default), so existing callers are unaffected.
+%     P.multi_seed    restart the propagation front in unreached speckle
+%                     regions (default true). When a correlation barrier
+%                     crosses the whole grid (weld bead, tape, glare band),
+%                     a single front dies there and everything beyond stays
+%                     NaN even though it is perfectly trackable; re-seeding
+%                     recovers those regions. On barrier-free data no
+%                     re-seed ever triggers and the result is bit-identical
+%                     to the single-seed engine. false = classical RG-DIC.
+%     P.max_seeds     cap on the number of successful seeds, incl. the
+%                     primary one (default 8).
 %
 %   Output struct R:
 %     R.U, R.V   displacements, px (x right / y down), NaN where invalid
 %     R.Q        ZNCC quality per point
 %     R.NIT      IC-GN iteration count per point
 %     R.gx, R.gy grid coordinates (columns / rows of the image)
+%     R.nseeds   number of seeds actually used (1 = single front sufficed)
 %
 %   Method: ZNSSD criterion (invariant to linear illumination changes);
 %   inverse-compositional Gauss-Newton (Baker & Matthews) with a
@@ -35,11 +64,38 @@ function R = dic_engine(ref, cur, P)
     margin = half + P.search_range + 2;
     gy = (margin+1):P.grid_step:(Himg-margin);   % rows (Y)
     gx = (margin+1):P.grid_step:(Wimg-margin);   % columns (X)
+    if isfield(P, 'roi') && ~isempty(P.roi)      % optional region [x y w h]
+        gy = gy(gy >= P.roi(2) & gy <= P.roi(2) + P.roi(4));
+        gx = gx(gx >= P.roi(1) & gx <= P.roi(1) + P.roi(3));
+        if isempty(gy) || isempty(gx)
+            error(['DIC: the ROI leaves no grid nodes - enlarge the ROI ' ...
+                   'or reduce subset/step.']);
+        end
+    end
     nY = numel(gy); nX = numel(gx);
 
     % mask of "black" subsets (the hole): max brightness in the window
     refmax = movmax(movmax(ref, P.subset_size, 1), P.subset_size, 2);
     speckle = refmax(gy, gx) >= P.black_thr;
+
+    % optional user AOI mask: a full-frame boolean sampled at the grid nodes
+    % and AND-ed into the speckle mask. Nodes it excludes are never seeded or
+    % grown, so they stay NaN - exactly like the black-region mask. This is
+    % the engine half of the polygon-AOI feature (the interactive editor is
+    % UI); any caller can restrict the grid to an arbitrary region without
+    % touching the rectangular P.roi.
+    if isfield(P, 'mask') && ~isempty(P.mask)
+        if ~isequal(size(P.mask), [Himg, Wimg])
+            error(['DIC: P.mask must be the same size as the reference ' ...
+                   'frame (%dx%d); got %dx%d.'], Himg, Wimg, ...
+                   size(P.mask, 1), size(P.mask, 2));
+        end
+        speckle = speckle & logical(P.mask(gy, gx));
+        if ~any(speckle(:))
+            error(['DIC: P.mask (with P.roi) leaves no valid grid nodes - ' ...
+                   'widen the mask/ROI or reduce subset/step.']);
+        end
+    end
 
     % spline interpolant of the deformed frame (built once)
     Fi = griddedInterpolant({1:Himg, 1:Wimg}, cur, 'spline', 'nearest');
@@ -51,56 +107,124 @@ function R = dic_engine(ref, cur, P)
     U = nan(nY, nX); V = nan(nY, nX); Q = nan(nY, nX); NIT = nan(nY, nX);
     Pw = nan(nY, nX, 6);   % parameters [u ux uy v vx vy] per point
 
-    % --- seed: the speckle node closest to the image center ---
+    % --- seed: the speckle node closest to the requested point (default:
+    %     the grid center) ---
     [Jg, Ig] = meshgrid(1:nX, 1:nY);
-    d2 = (Ig - (nY+1)/2).^2 + (Jg - (nX+1)/2).^2;
+    if isfield(P, 'seed_xy') && ~isempty(P.seed_xy)
+        d2 = (gy(Ig) - P.seed_xy(2)).^2 + (gx(Jg) - P.seed_xy(1)).^2;
+    else
+        d2 = (Ig - (nY+1)/2).^2 + (Jg - (nX+1)/2).^2;
+    end
     d2(~speckle) = inf;
     [~, kseed] = min(d2(:));
     [si, sj] = ind2sub([nY, nX], kseed);
 
-    [du0, dv0] = int_search(ref, cur, gy(si), gx(sj), half, P.search_range);
-    [p, q, nit, ok] = icgn_point(ref, Fi, gy(si), gx(sj), ...
-        [du0 0 0 dv0 0 0], half, xi, eta, P);
-    if ~ok, error('DIC: seed point did not converge - increase search_range.'); end
-    Pw(si, sj, :) = p;
-    U(si, sj) = p(1); V(si, sj) = p(4); Q(si, sj) = q; NIT(si, sj) = nit;
+    if isfield(P, 'seed_shift') && ~isempty(P.seed_shift)
+        s0 = round(double(P.seed_shift(:)'));    % [sx sy] coarse prior
+    else
+        s0 = [0 0];
+    end
 
-    % --- RG-DIC: front grows from the best ZNCC (binary heap) ---
+    % --- RG-DIC with multi-seed restart (binary heap front) ---
     % A node is finalized ONLY on success: a node that failed from one
     % neighbor can still converge from another (no dead holes), and the
     % heap keeps dense grids at O(N log N).
+    % One seed + one front is classical RG-DIC. When a correlation barrier
+    % crosses the WHOLE grid (weld bead, tape, glare band), the front dies
+    % at it and every node beyond stays NaN even though it is perfectly
+    % trackable. So after the front exhausts, the engine re-seeds at the
+    % best-textured node of the remaining unreached speckle area (same
+    % integer search around the same coarse prior) and grows a new front.
+    % Re-seeds only ever fill nodes that are still NaN, so on barrier-free
+    % data (no unreached nodes) the result is bit-identical to the
+    % single-seed engine. P.multi_seed = false restores the old behavior.
     cap = nY * nX;
     hq = zeros(cap, 1); hi = zeros(cap, 1); hj = zeros(cap, 1); hn = 0;
-    [hq, hi, hj, hn] = heap_push(hq, hi, hj, hn, q, si, sj);
-    done = false(nY, nX);
-    done(si, sj) = true;
+    done  = false(nY, nX);
+    tried = false(nY, nX);   % nodes rejected as re-seed candidates
     nbr = [1 0; -1 0; 0 1; 0 -1];
-    while hn > 0
-        [ci, cj, hq, hi, hj, hn] = heap_pop(hq, hi, hj, hn);
-        p0 = squeeze(Pw(ci, cj, :)).';
-        for n = 1:4
-            ii = ci + nbr(n,1); jj = cj + nbr(n,2);
-            if ii < 1 || ii > nY || jj < 1 || jj > nX, continue; end
-            if done(ii, jj) || ~speckle(ii, jj), continue; end
-            [p, q, nit, ok] = icgn_point(ref, Fi, gy(ii), gx(jj), transfer(p0, nbr(n,:), P.grid_step), half, xi, eta, P);
-            if ~ok || q < P.zncc_min, continue; end
-            done(ii, jj) = true;
-            Pw(ii, jj, :) = p;
-            U(ii, jj) = p(1); V(ii, jj) = p(4); Q(ii, jj) = q; NIT(ii, jj) = nit;
-            [hq, hi, hj, hn] = heap_push(hq, hi, hj, hn, q, ii, jj);
+    multi = ~isfield(P, 'multi_seed') || isempty(P.multi_seed) || P.multi_seed;
+    maxseeds = 8;
+    if isfield(P, 'max_seeds') && ~isempty(P.max_seeds), maxseeds = P.max_seeds; end
+    minregion = max(10, round(0.005 * nnz(speckle)));   % ignore tiny islands
+    nseeds = 0; attempts = 0;
+    while true
+        % ---- pick a seed node ----
+        if nseeds > 0            % primary (si,sj) already chosen above
+            if ~multi || nseeds >= maxseeds, break; end
+            cand = speckle & ~done & ~tried;
+            if nnz(cand) < minregion, break; end
+            [si, sj] = best_texture_node(ref, gy, gx, cand, half);
+        end
+        attempts = attempts + 1;
+        if attempts > 5 * maxseeds, break; end   % bad-region bailout
+        % ---- solve the seed ----
+        [du0, dv0] = int_search(ref, cur, gy(si), gx(sj), half, P.search_range, s0);
+        [p, q, nit, ok] = icgn_point(ref, Fi, gy(si), gx(sj), ...
+            [du0 0 0 dv0 0 0], half, xi, eta, P);
+        if nseeds == 0 && ~ok
+            error('DIC: seed point did not converge - increase search_range.');
+        end
+        if ~ok || (nseeds > 0 && q < P.zncc_min)
+            % bad seed spot (e.g. ON the barrier): block its 3x3 ring too
+            tried(max(1,si-1):min(nY,si+1), max(1,sj-1):min(nX,sj+1)) = true;
+            continue;
+        end
+        nseeds = nseeds + 1;
+        done(si, sj) = true;
+        Pw(si, sj, :) = p;
+        U(si, sj) = p(1); V(si, sj) = p(4); Q(si, sj) = q; NIT(si, sj) = nit;
+        [hq, hi, hj, hn] = heap_push(hq, hi, hj, hn, q, si, sj);
+        % ---- grow the front (classical RG-DIC, unchanged) ----
+        while hn > 0
+            [ci, cj, hq, hi, hj, hn] = heap_pop(hq, hi, hj, hn);
+            p0 = squeeze(Pw(ci, cj, :)).';
+            for n = 1:4
+                ii = ci + nbr(n,1); jj = cj + nbr(n,2);
+                if ii < 1 || ii > nY || jj < 1 || jj > nX, continue; end
+                if done(ii, jj) || ~speckle(ii, jj), continue; end
+                [p, q, nit, ok] = icgn_point(ref, Fi, gy(ii), gx(jj), transfer(p0, nbr(n,:), P.grid_step), half, xi, eta, P);
+                if ~ok || q < P.zncc_min, continue; end
+                done(ii, jj) = true;
+                Pw(ii, jj, :) = p;
+                U(ii, jj) = p(1); V(ii, jj) = p(4); Q(ii, jj) = q; NIT(ii, jj) = nit;
+                [hq, hi, hj, hn] = heap_push(hq, hi, hj, hn, q, ii, jj);
+            end
         end
     end
-    R = struct('U', U, 'V', V, 'Q', Q, 'NIT', NIT, 'gx', gx, 'gy', gy);
+    R = struct('U', U, 'V', V, 'Q', Q, 'NIT', NIT, 'gx', gx, 'gy', gy, ...
+        'nseeds', nseeds);
 end
 
-function [du, dv] = int_search(ref, cur, y0, x0, half, rng_px)
-% Integer ZNCC search around (x0, y0) - used only for the seed point.
+function [si, sj] = best_texture_node(ref, gy, gx, cand, half)
+% Best re-seed candidate among the unreached speckle nodes: the node whose
+% reference subset has the highest intensity std (strongest texture) - the
+% safest place to restart the propagation front. A plain loop over the
+% candidate nodes; each visit costs one subset std, so even thousands of
+% candidates are cheap next to a single IC-GN solve.
+    idx = find(cand);
+    best = -inf; si = 0; sj = 0;
+    nY = size(cand, 1);
+    for t = 1:numel(idx)
+        i = mod(idx(t) - 1, nY) + 1;
+        j = floor((idx(t) - 1) / nY) + 1;
+        f = ref(gy(i)-half:gy(i)+half, gx(j)-half:gx(j)+half);
+        v = std(f(:));
+        if v > best, best = v; si = i; sj = j; end
+    end
+end
+
+function [du, dv] = int_search(ref, cur, y0, x0, half, rng_px, s0)
+% Integer ZNCC search around (x0 + s0(1), y0 + s0(2)) - seed point only.
+% s0 is an optional coarse prior shift [sx sy]; the +/-rng_px window is
+% centered on it (default [0 0], the historical behavior).
+    if nargin < 7, s0 = [0 0]; end
     f = ref(y0-half:y0+half, x0-half:x0+half);
     fz = f(:) - mean(f(:)); fn = norm(fz);
     [Himg, Wimg] = size(cur);
-    best = -2; du = 0; dv = 0;
-    for dy = -rng_px:rng_px
-        for dx = -rng_px:rng_px
+    best = -2; du = s0(1); dv = s0(2);
+    for dy = s0(2)-rng_px : s0(2)+rng_px
+        for dx = s0(1)-rng_px : s0(1)+rng_px
             ys = y0 + dy; xs = x0 + dx;
             if ys-half < 1 || ys+half > Himg || xs-half < 1 || xs+half > Wimg
                 continue;

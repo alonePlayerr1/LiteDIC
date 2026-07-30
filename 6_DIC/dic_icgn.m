@@ -84,7 +84,7 @@ end
 this_dir = fileparts(mfilename('fullpath'));
 if isempty(this_dir), this_dir = pwd; end
 [ref_name, cur_names] = find_series(this_dir, ref_pattern, def_pattern);
-ref_image = to_gray(imread(fullfile(this_dir, ref_name))) / 255;
+ref_image = read_gray(fullfile(this_dir, ref_name));
 
 nF = numel(cur_names);
 series = struct('name', cur_names, 'mean_u', [], 'mean_v', [], 'zncc', [], ...
@@ -92,7 +92,7 @@ series = struct('name', cur_names, 'mean_u', [], 'mean_v', [], 'zncc', [], ...
 
 %% ============ Engine + strains over the whole series ============
 for k = 1:nF
-    cur_image = to_gray(imread(fullfile(this_dir, cur_names{k}))) / 255;
+    cur_image = read_gray(fullfile(this_dir, cur_names{k}));
     if ~isequal(size(cur_image), size(ref_image))
         error('Size of %s does not match the reference frame.', cur_names{k});
     end
@@ -113,7 +113,7 @@ end
 % R, exx... hold the LAST frame of the series - that is what gets plotted.
 
 %% ===================== Visualization layer =====================
-cur_image = to_gray(imread(fullfile(this_dir, cur_names{end}))) / 255;
+cur_image = read_gray(fullfile(this_dir, cur_names{end}));
 
 figure('Name', 'DIC: input frames');
 subplot(1,2,1); imagesc(ref_image); colormap(gray); axis image off;
@@ -193,7 +193,7 @@ function [ref_name, cur_names] = find_series(folder, ref_pattern, def_pattern)
     end
     ref_name = d(1).name;
     d = dir(fullfile(folder, def_pattern));
-    cur_names = setdiff(sort({d.name}), {ref_name}, 'stable');
+    cur_names = setdiff(sort_frames({d.name}), {ref_name}, 'stable');
     if isempty(cur_names)
         error('No deformed frames found: %s in %s', def_pattern, folder);
     end
@@ -208,5 +208,38 @@ function g = to_gray(img)
         g = 0.2989*img(:,:,1) + 0.5870*img(:,:,2) + 0.1140*img(:,:,3);
     else
         g = double(img);
+    end
+end
+
+function g = read_gray(pathname)
+% Read one frame as grayscale double in [0..1] whatever the file's bit
+% depth: integer classes are scaled by their OWN intmax (uint8 -> /255,
+% uint16 -> /65535, ...), so 10/12/16-bit scientific-camera series satisfy
+% the engine's [0..1] contract (P.black_thr, quality gates). A fixed /255
+% would leave 16-bit data ~257x out of range. Float images already above 1
+% are scaled by their max. Same as /255 for 8-bit input.
+    I = imread(pathname);
+    if isinteger(I), s = double(intmax(class(I))); else, s = 1; end
+    g = to_gray(I) / s;
+    mx = max(g(:));
+    if mx > 1, g = g / mx; end
+end
+
+function names = sort_frames(names)
+% Chronological sort of frame names. Real cameras/DAQs often number frames
+% WITHOUT zero-padding (img_2.jpg ... img_10.jpg): a plain lexicographic
+% sort puts img_10 before img_2 and the series is processed out of order.
+% When every name carries a trailing number before the extension, sort by
+% that number; otherwise fall back to the lexicographic sort. Zero-padded
+% series sort identically either way, so existing datasets are unaffected.
+    if isempty(names), return; end
+    t = regexp(names, '(\d+)\.[^.]*$', 'tokens', 'once');
+    has = ~cellfun(@isempty, t);
+    if all(has)
+        num = cellfun(@(c) str2double(c{1}), t);
+        [~, o] = sort(num);
+        names = names(o);
+    else
+        names = sort(names);
     end
 end

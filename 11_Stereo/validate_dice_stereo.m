@@ -153,7 +153,7 @@ end
 fprintf('\n--- frame-0 diagnostics ---\n');
 T0 = read_dice_gold(fullfile(spec, 'gold', 'DICe_solution_0.txt'));
 T1 = read_dice_gold(fullfile(spec, 'gold', 'DICe_solution_1.txt'));
-[c01, i0, i1] = intersect(T0.SUBSET_ID, T1.SUBSET_ID); %#ok<ASGLU>
+[c01, i0, i1] = intersect(T0.SUBSET_ID, T1.SUBSET_ID);
 dQ = T0.CROSS_CORR_Q(i0) - T1.CROSS_CORR_Q(i1);
 dR = T0.CROSS_CORR_R(i0) - T1.CROSS_CORR_R(i1);
 fprintf('gold cross frame0-vs-frame1: max |dQ| %.4f px, max |dR| %.4f px %s\n', ...
@@ -214,3 +214,4 @@ end
 function s = tern(cond, a, b)
     if cond, s = a; else, s = b; end
 end
+

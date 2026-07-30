@@ -1,16 +1,40 @@
-function RUN_TESTS(mode)
+function RUN_TESTS(mode, dataDir)
 % RUN_TESTS - automated regression harness: runs every analysis and checks
 % the key numbers against reference intervals.
 %
 % Usage from the project folder:
-%       RUN_TESTS            % main set, ~1-2 min
-%       RUN_TESTS('full')    % + FE beam (requires the PDE Toolbox)
+%       RUN_TESTS                  % main set, ~1-2 min
+%       RUN_TESTS('full')          % + FE beam (requires the PDE Toolbox)
+%       RUN_TESTS('stereo-data')   % + welded-plate stereo vs Vic-3D
+%                                  %   (OPT-IN: needs the external dataset,
+%                                  %    takes minutes; base suite is
+%                                  %    independent of any external data)
+%       RUN_TESTS('stereo-data', '<path to DIC 3D dataset>')  % custom path
 %
 % The report is printed, saved to TEST_REPORT.txt and copied to the
 % clipboard.
 
 if nargin < 1, mode = 'base'; end
-do_full = strcmpi(mode, 'full');
+if nargin < 2 || isempty(dataDir)
+    % Portable default for the opt-in stereo-data set (~2.5 GB, not in git):
+    % (1) the LITEDIC_STEREO_DATA environment variable, else (2) a few common
+    % local locations. No user-specific absolute path is baked into source;
+    % if none resolves, test_stereo_dataset prints how to pass the path.
+    rootDir = fileparts(mfilename('fullpath'));
+    if ispc, homeDir = getenv('USERPROFILE'); else, homeDir = getenv('HOME'); end
+    dataDir = getenv('LITEDIC_STEREO_DATA');
+    if isempty(dataDir)
+        cand = { fullfile(homeDir, 'DIC', 'DIC 3D dataset'), ...
+                 fullfile(fileparts(rootDir), 'LiteDIC app', 'examples', 'DIC 3D dataset'), ...
+                 fullfile(rootDir, '12_Datasets', 'DIC 3D dataset') };
+        for ii = 1:numel(cand)
+            if isfolder(cand{ii}), dataDir = cand{ii}; break; end
+        end
+        if isempty(dataDir), dataDir = cand{1}; end   % name a sensible path in the error
+    end
+end
+do_full        = strcmpi(mode, 'full');
+do_stereo_data = strcmpi(mode, 'stereo-data');
 root = fileparts(mfilename('fullpath'));
 t_all = tic;
 G = {};   % report rows: {group, check name, ok(0/1/-1), details}
@@ -34,13 +58,25 @@ G = run_case(G, 'DIC coarse (dic_coarse.m)',    @test_corr);
 G = run_case(G, 'DIC subpixel (dic_icgn.m)',    @test_dicpro);
 G = run_case(G, 'DIC batch kernel (dic_engine_batch.m)', @test_batch);
 G = run_case(G, 'DIC bias S-curve (bias_scurve.m)', @test_scurve);
+G = run_case(G, 'DIC large-shift seed (run_series_2d path)', @test_series2d_bigshift);
+G = run_case(G, 'DIC real-data inputs (bit depth, frame order, size guard)', @test_realdata_inputs);
+G = run_case(G, 'DIC engine AOI mask hook (dic_engine P.mask)', @test_engine_mask);
+G = run_case(G, 'DIC multi-seed barrier crossing (dic_engine)', @test_multiseed);
+G = run_case(G, 'DIC virtual extensometer (virtual_extensometer.m)', @test_extensometer);
 G = run_case(G, 'DIC mm/px scale (dic_scale.m)', @test_scale);
 G = run_case(G, 'DIC vs DICe gold (validate_dice.m)', @test_dice_gold);
 G = run_case(G, 'Stereo intrinsics (11_Stereo)', @test_stereo_cal);
 G = run_case(G, 'Stereo extrinsics+triangulation (11_Stereo)', @test_stereo3);
 G = run_case(G, 'Stereo DIC vs DICe gold (11_Stereo)', @test_stereo_gold);
+G = run_case(G, 'Surface strain (surf_strain.m)', @test_surf_strain);
+G = run_case(G, 'GT dataset factory (gen_dataset.m)', @test_gt_gen);
+G = run_case(G, 'External validator (13_Validator)', @test_validator);
 if do_full
     G = run_case(G, 'FE beam (beam_fem.m, PDE Toolbox)', @test_beam);
+end
+if do_stereo_data
+    G = run_case(G, 'Stereo dataset vs Vic-3D (frozen, opt-in)', ...
+        @() test_stereo_dataset(dataDir));
 end
 
 % ---------- report ----------
@@ -140,6 +176,7 @@ function file_check(root)
         fullfile('6_DIC','dic_engine.m'), ...
         fullfile('6_DIC','dic_engine_batch.m'), ...
         fullfile('6_DIC','pls_strain.m'), ...
+        fullfile('6_DIC','virtual_extensometer.m'), ...
         fullfile('6_DIC','dic_scale.m'), ...
         fullfile('6_DIC','scale_from_length.m'), ...
         fullfile('6_DIC','plate_ref.tiff'), ...
@@ -398,6 +435,317 @@ function K = fspecial_gauss(sigma)
     K = K / sum(K(:));
 end
 
+function rows = test_series2d_bigshift()
+% Large rigid-shift recovery through P.seed_shift - needed by the
+% run_series_2d front end. The +/-search_range
+% (15 px) integer seed search is CENTERED on a coarse integer prior, so a
+% shift of tens-to-hundreds of px per step is recovered without enlarging
+% the search window. This is exactly the synthetic self-test embedded in
+% run_series_2d.m (rigid shift +60.30/-40.20 px, coarse prior [60 -40]),
+% wired in here as an always-on regression so the seed_shift path cannot
+% silently break. Deterministic (rng 0), toolbox-free, no external data.
+% Bounds mirror the driver's own accept threshold (|err| < 0.05 px); the
+% 400x400 frame at grid step 10 (margin 37) yields a 33x33 node grid.
+    addpath(proj('6_DIC'));
+    rng(0);
+    img = conv2(rand(420), fspecial_gauss(2.0), 'same');
+    img = img(11:410, 11:410);
+    img = (img - min(img(:))) / (max(img(:)) - min(img(:)));
+    TU = 60.30; TV = -40.20;
+    Fi = griddedInterpolant({1:size(img,1), 1:size(img,2)}, img, 'spline', 'nearest');
+    [XX, YY] = meshgrid(1:size(img,2), 1:size(img,1));
+    shifted = reshape(Fi(YY(:) - TV, XX(:) - TU), size(img));
+    P = struct('subset_size', 41, 'grid_step', 10, 'search_range', 15, ...
+        'black_thr', 0.2, 'zncc_min', 0.5, 'max_iter', 30, 'conv_tol', 1e-3, ...
+        'seed_shift', [60 -40]);
+    R = dic_engine(img, shifted, P);
+    eu = mean(R.U(:), 'omitnan') - TU;
+    ev = mean(R.V(:), 'omitnan') - TV;
+    rows = {};
+    rows = chk(rows, 'seed_shift: |error u|, px', abs(eu), 0, 0.05, '%.5f');
+    rows = chk(rows, 'seed_shift: |error v|, px', abs(ev), 0, 0.05, '%.5f');
+    rows = chk(rows, 'seed_shift: valid points (no collapse)', nnz(~isnan(R.U)), 500, Inf, '%.0f');
+end
+
+function rows = test_realdata_inputs()
+% Real-data input checks for the 2D series driver:
+% (1) non-zero-padded frame numbers are processed in natural
+%     (chronological) order - a lexicographic sort reads frame_10 before
+%     frame_2 and silently scrambles the series;
+% (2) frames are normalized by their OWN bit depth: a 16-bit series must
+%     give the same fields AND the same black-region (dark hole) mask as
+%     its 8-bit twin (a hardcoded /255 puts 16-bit data ~257x out of
+%     range and the hole mask stops working);
+% (3) a stray mixed-size file dies with a clear message, not a cryptic
+%     interp error;
+% (4) the driver's built-in self-test is PINNED to its own subset/step: a
+%     fine-speckle user subset (15 px) must not fail it spuriously.
+% All synthetic, deterministic (rng 0), toolbox-free, no external data.
+    addpath(proj('6_DIC'));
+    rng(0);
+    M = conv2(rand(400, 440), fspecial_gauss(2.0), 'same');
+    M = M(11:390, 11:430);                        % 380 x 420 master scene
+    M = (M - min(M(:))) / (max(M(:)) - min(M(:)));
+    M = 0.05 + 0.9 * M;                           % keep off the int limits
+    [xx, yy] = meshgrid(1:size(M,2), 1:size(M,1));
+    M(hypot(xx - 150, yy - 170) < 35) = 0.02;     % dark hole (black-region mask)
+    dy = 3;                                       % rigid shift per frame, px
+    crop = @(k) M((1:300) + (k-1)*dy, 1:340);     % scene moves up: v = -dy/step
+    args = {'SelfTest', false, 'Frames', false, 'MaxShift', [8 8], ...
+            'GridStep', 10, 'SubsetSize', 41};
+    rows = {};
+
+    % ---- (1) natural frame order + the 8-bit reference run ----
+    d8 = [tempname 'a']; mkdir(d8);
+    cu8 = onCleanup(@() rmdir(d8, 's')); %#ok<NASGU>
+    nm = {'frame_1.png', 'frame_2.png', 'frame_10.png'};   % 10 sorts after 2
+    for k = 1:3
+        imwrite(uint8(round(crop(k) * 255)), fullfile(d8, nm{k}));
+    end
+    evalc('run_series_2d(d8, args{:})');
+    S8 = load(fullfile(d8, 'litedic_out', 'series_2d_results.mat'), ...
+        'names', 'cumV', 'alive', 'X0', 'Y0');
+    rows = chk(rows, 'non-padded frame names in natural order', ...
+        double(isequal(S8.names(:).', nm)), 0.5, 1.5, '%.0f');
+    cv8 = mean(S8.cumV(S8.alive), 'omitnan');
+    rows = chk(rows, '8-bit run: cum v after 2 steps of -3 px, px', ...
+        cv8, -2*dy - 0.05, -2*dy + 0.05, '%.3f');
+
+    % ---- (2) 16-bit twin: same fields, same hole mask ----
+    d16 = [tempname 'b']; mkdir(d16);
+    cu16 = onCleanup(@() rmdir(d16, 's')); %#ok<NASGU>
+    for k = 1:3
+        imwrite(uint16(round(crop(k) * 65535)), fullfile(d16, sprintf('frame_%02d.png', k)));
+    end
+    evalc('run_series_2d(d16, args{:})');
+    S16 = load(fullfile(d16, 'litedic_out', 'series_2d_results.mat'), ...
+        'cumV', 'alive');
+    inHole = hypot(S8.X0 - 150, S8.Y0 - 170) < 8;  % nodes deep inside the hole
+    nH8  = nnz(inHole & ~isfinite(S8.cumV));
+    nH16 = nnz(inHole & ~isfinite(S16.cumV));
+    rows = chk(rows, 'hole nodes masked in the 8-bit run', nH8, 1, Inf, '%.0f');
+    rows = chk(rows, '16-bit run: hole nodes masked like 8-bit', ...
+        nH16, nH8 - 0.5, nH8 + 0.5, '%.0f');
+    rows = chk(rows, '16-bit vs 8-bit: differing valid nodes', ...
+        nnz(xor(isfinite(S8.cumV), isfinite(S16.cumV))), 0, 2, '%.0f');
+    both = S8.alive & S16.alive;
+    rows = chk(rows, '16-bit vs 8-bit: max |cum v diff|, px', ...
+        max(abs(S8.cumV(both) - S16.cumV(both))), 0, 0.02, '%.4f');
+
+    % ---- (3) mixed-size stray file -> clear error ----
+    dm = [tempname 'c']; mkdir(dm);
+    cum = onCleanup(@() rmdir(dm, 's')); %#ok<NASGU>
+    imwrite(uint8(round(crop(1) * 255)), fullfile(dm, 'frame_01.png'));
+    imwrite(uint8(round(crop(2) * 255)), fullfile(dm, 'frame_02.png'));
+    C3 = crop(3);
+    imwrite(uint8(round(C3(1:150, 1:170) * 255)), fullfile(dm, 'frame_03.png'));
+    okmsg = false;
+    try
+        evalc('run_series_2d(dm, args{:})');
+    catch err
+        okmsg = contains(err.message, 'mixed-size');
+    end
+    rows = chk(rows, 'mixed-size stray frame errors clearly', ...
+        double(okmsg), 0.5, 1.5, '%.0f');
+
+    % ---- (4) pinned self-test: fine-speckle subset must not fail it ----
+    ok15 = true;
+    try
+        evalc(['run_series_2d(d16, ''SelfTest'', true, ''Frames'', false, ' ...
+               '''MaxShift'', [8 8], ''GridStep'', 12, ''SubsetSize'', 15)']);
+    catch
+        ok15 = false;
+    end
+    rows = chk(rows, 'pinned self-test: SubsetSize 15 run survives', ...
+        double(ok15), 0.5, 1.5, '%.0f');
+end
+
+function rows = test_engine_mask()
+% Optional AOI mask hook (dic_engine P.mask) - the engine half of the
+% polygon-AOI feature. A full-frame boolean restricts the grid alongside
+% P.roi so fixtures/glare can be excluded. Every check is an exact logical
+% invariant (no image-dependent interval to pin), deterministic (rng 0),
+% toolbox-free, no external data:
+%   (a) an all-true mask reproduces the no-mask fields BIT-FOR-BIT (the mask
+%       path must be inert when it excludes nothing);
+%   (b) nodes in a masked-out band are all NaN (the mask actually excludes);
+%   (c) the kept nodes match the no-mask run to convergence tolerance (only
+%       the boundary warm-start can differ; both reach the same optimum).
+    addpath(proj('6_DIC'));
+    rng(0);
+    img = conv2(rand(220), fspecial_gauss(2.0), 'same');
+    img = img(11:210, 11:210);
+    img = (img - min(img(:))) / (max(img(:)) - min(img(:)));
+    TU = 0.30; TV = -0.20;
+    Fi = griddedInterpolant({1:size(img,1), 1:size(img,2)}, img, 'spline', 'nearest');
+    [XX, YY] = meshgrid(1:size(img,2), 1:size(img,1));
+    shifted = reshape(Fi(YY(:) - TV, XX(:) - TU), size(img));
+    P = struct('subset_size', 41, 'grid_step', 10, 'search_range', 15, ...
+        'black_thr', 0.2, 'zncc_min', 0.5, 'max_iter', 30, 'conv_tol', 1e-3);
+    R0 = dic_engine(img, shifted, P);
+
+    % (a) all-true mask must be identical to no mask
+    Pm = P; Pm.mask = true(size(img));
+    R1 = dic_engine(img, shifted, Pm);
+    same = isequaln(R1.U, R0.U) && isequaln(R1.V, R0.V);
+
+    % (b)+(c) exclude the bottom band of the frame (image rows > 110)
+    m = true(size(img)); m(111:end, :) = false;
+    Pm2 = P; Pm2.mask = m;
+    R2 = dic_engine(img, shifted, Pm2);
+    inband  = R2.gy(:) <= 110;          % grid rows kept by the mask
+    outband = R2.gy(:) >  110;          % grid rows excluded by the mask
+    Uout = R2.U(outband, :);
+    allnan_out = ~any(isfinite(Uout(:)));
+    U2 = R2.U(inband, :); U0 = R0.U(inband, :);
+    V2 = R2.V(inband, :); V0 = R0.V(inband, :);
+    mm = isfinite(U2) & isfinite(U0);
+    dmax = max(max(abs(U2(mm) - U0(mm))), max(abs(V2(mm) - V0(mm))));
+
+    rows = {};
+    rows = chk(rows, 'all-true mask == no mask (bit-for-bit)', double(same), 0.5, 1.5, '%.0f');
+    rows = chk(rows, 'masked-out nodes are all NaN', double(allnan_out), 0.5, 1.5, '%.0f');
+    rows = chk(rows, 'kept nodes match no-mask run, max|diff| px', dmax, 0, 0.005, '%.2e');
+    rows = chk(rows, 'kept nodes stay valid', nnz(mm), 30, Inf, '%.0f');
+end
+
+function rows = test_multiseed()
+% Multi-seed RG propagation (dic_engine P.multi_seed). A black band across
+% the FULL frame width - wider than the subset window, so a whole grid row
+% is excluded by the black-region mask - splits the speckle grid into two
+% DISCONNECTED regions: the synthetic version of a weld bead / tape /
+% glare barrier. The classical single front can never reach the far side
+% (it stays NaN, as on the NLMK weld images,
+% 2026-07-14); the re-seed restart must recover it with the same rigid
+% shift. The seed is pinned to the TOP region (P.seed_xy) so "near" and
+% "far" sides are deterministic. Checks:
+%   (a) single-seed run (multi_seed=false) leaves the far side empty,
+%       i.e. the fixture is a real barrier;
+%   (b) multi-seed run recovers BOTH sides with the correct displacement;
+%   (c) on barrier-free data multi-seed is bit-identical to single-seed
+%       (no re-seed may trigger when one front reaches everything).
+% Deterministic (rng 0), toolbox-free, no external data.
+    addpath(proj('6_DIC'));
+    rng(0);
+    img = conv2(rand(320), fspecial_gauss(2.0), 'same');
+    img = img(11:310, 11:310);
+    img = (img - min(img(:))) / (max(img(:)) - min(img(:)));
+    img = 0.2 + 0.8 * img;              % keep speckle above black_thr
+    barr = img;  barr(131:170, :) = 0;  % 40-px black band, full width:
+    % subset 21 px -> grid nodes at rows 141..160 have an all-black window
+    % (movmax < black_thr) and are masked out, cutting the grid in two.
+    TU = 3.30; TV = -2.20;
+    Fi = griddedInterpolant({1:size(barr,1), 1:size(barr,2)}, barr, 'spline', 'nearest');
+    [XX, YY] = meshgrid(1:size(barr,2), 1:size(barr,1));
+    shifted = reshape(Fi(YY(:) - TV, XX(:) - TU), size(barr));
+    P = struct('subset_size', 21, 'grid_step', 10, 'search_range', 15, ...
+        'black_thr', 0.15, 'zncc_min', 0.5, 'max_iter', 30, 'conv_tol', 1e-3, ...
+        'seed_xy', [150 40]);           % pin the seed to the TOP region
+
+    % (a) classical single seed: far side of the band must stay NaN
+    P1 = P; P1.multi_seed = false;
+    R1 = dic_engine(barr, shifted, P1);
+    far1 = R1.U(R1.gy(:) > 170, :);          % nodes clearly beyond the band
+    near1 = R1.U(R1.gy(:) < 130, :);
+    blocked = ~any(isfinite(far1(:))) && any(isfinite(near1(:)));
+
+    % (b) multi-seed (default): both sides recovered, correct shift
+    R2 = dic_engine(barr, shifted, P);
+    far2 = R2.U(R2.gy(:) > 170, :);
+    fv = far2(isfinite(far2));
+    eu = mean(R2.U(:), 'omitnan') - TU;
+    ev = mean(R2.V(:), 'omitnan') - TV;
+
+    % (c) barrier-free frame: multi-seed must change nothing (no restart)
+    Fi0 = griddedInterpolant({1:size(img,1), 1:size(img,2)}, img, 'spline', 'nearest');
+    sh0 = reshape(Fi0(YY(:) - TV, XX(:) - TU), size(img));
+    Ra = dic_engine(img, sh0, P1);           % single-seed
+    Rb = dic_engine(img, sh0, P);            % multi-seed allowed
+    inert = isequaln(Ra.U, Rb.U) && isequaln(Ra.V, Rb.V) && Rb.nseeds == 1;
+
+    rows = {};
+    rows = chk(rows, 'single seed: far side blocked (fixture valid)', double(blocked), 0.5, 1.5, '%.0f');
+    rows = chk(rows, 'multi-seed: seeds used', R2.nseeds, 2, 8, '%.0f');
+    rows = chk(rows, 'multi-seed: far-side nodes recovered', numel(fv), 100, Inf, '%.0f');
+    rows = chk(rows, 'multi-seed: far-side |u err|, px', abs(mean(fv) - TU), 0, 0.05, '%.5f');
+    rows = chk(rows, 'multi-seed: full-field |err u|, px', abs(eu), 0, 0.05, '%.5f');
+    rows = chk(rows, 'multi-seed: full-field |err v|, px', abs(ev), 0, 0.05, '%.5f');
+    rows = chk(rows, 'barrier-free: multi-seed inert (bit-for-bit)', double(inert), 0.5, 1.5, '%.0f');
+end
+
+function rows = test_extensometer()
+% Virtual extensometer (virtual_extensometer.m): gauge-length readings
+% across arbitrary point pairs - the "number in the middle" for a zone DIC
+% cannot track directly (weld bead / crack / bond line), read from speckle
+% on the two banks alone. A pure post-processor unit test on ANALYTIC
+% displacement fields with exactly known answers: no images, deterministic,
+% toolbox-free.
+%   (a) rigid-body translation -> zero strain / zero opening on any gauge;
+%   (b) uniform x-stretch eps=0.01 -> an x-gauge reads eps and the relative
+%       du exactly, a y-gauge in the SAME field reads ~0 (orientation is
+%       honoured - opening/shear are per-gauge-axis);
+%   (c) a pure separation D across a horizontal seam -> a gauge straddling
+%       the seam (one end on each bank, the seam itself never sampled) reads
+%       opening = D, returned in mm under a scale;
+%   (d) a NaN at a gauge end is INVALID with snapping off and RECOVERED by
+%       the default nearest-valid-node snap;
+%   (e) a 2-state stack returns a 2-column reading curve.
+    addpath(proj('6_DIC'));
+    gx = 10:10:300;  gy = 10:10:300;
+    [X, Y] = meshgrid(gx, gy);
+    Z = zeros(size(X));
+
+    % (a) rigid body: U=+5, V=-3 everywhere; horizontal + vertical gauge
+    Ea = virtual_extensometer(gx, gy, Z+5, Z-3, ...
+        [50 150 250 150; 150 50 150 250]);
+    rb_strain = max(abs(Ea.strain));
+    rb_open   = max(abs(Ea.opening));
+
+    % (b) uniform x-stretch eps = 0.01: U = eps*X, V = 0
+    epsx = 0.01;
+    Eb = virtual_extensometer(gx, gy, epsx*X, Z, ...
+        [50 150 250 150; ...      % x-gauge, L0 = 200 px
+         150 50 150 250]);        % y-gauge in the same field -> ~0
+    ex_strain = Eb.strain(1);
+    ex_du     = Eb.du(1);         % expect eps*(250-50) = 2.0 px
+    ey_strain = abs(Eb.strain(2));
+
+    % (c) pure separation D across a horizontal seam at Y = 150
+    D = 4;  mmpx = 0.02;
+    Vc = Z;  Vc(Y > 150) = D;     % bottom bank displaced +D in y
+    Ec = virtual_extensometer(gx, gy, Z, Vc, [150 100 150 200], 'Scale', mmpx);
+    open_mm = Ec.opening(1);      % expect D*mmpx = 0.08 mm
+    open_px = Ec.opening(1)/mmpx; % expect D = 4 px
+
+    % (d) NaN at a gauge end: invalid with snap off, recovered by default
+    Ud = epsx*X;  Vd = Z;
+    [~, jn] = min(abs(gx - 250));  [~, in] = min(abs(gy - 150));
+    Ud(in, jn) = NaN;  Vd(in, jn) = NaN;      % kill the exact end node
+    En = virtual_extensometer(gx, gy, Ud, Vd, [50 150 250 150], 'SnapRadius', 0);
+    Es = virtual_extensometer(gx, gy, Ud, Vd, [50 150 250 150]);   % default snap
+    off_valid = double(En.valid(1));          % expect 0
+    on_valid  = double(Es.valid(1));          % expect 1
+
+    % (e) 2-state stack -> 2-column curve (rigid state, then stretch state)
+    Ek = virtual_extensometer(gx, gy, cat(3, Z+5, epsx*X), cat(3, Z-3, Z), ...
+        [50 150 250 150]);
+    ncol   = size(Ek.strain, 2);
+    stk_ok = abs(Ek.strain(1,1)) < 1e-9 && abs(Ek.strain(1,2) - epsx) < 1e-6;
+
+    rows = {};
+    rows = chk(rows, '(a) rigid body: max|strain|',        rb_strain, 0, 1e-9, '%.2e');
+    rows = chk(rows, '(a) rigid body: max|opening| px',    rb_open,   0, 1e-9, '%.2e');
+    rows = chk(rows, '(b) x-stretch: axial strain',        ex_strain, 0.00999, 0.01001, '%.6f');
+    rows = chk(rows, '(b) x-stretch: relative du px',      ex_du,     1.999, 2.001, '%.4f');
+    rows = chk(rows, '(b) y-gauge in x-field: |strain|',   ey_strain, 0, 1e-9, '%.2e');
+    rows = chk(rows, '(c) seam opening, mm',               open_mm,   0.0799, 0.0801, '%.4f');
+    rows = chk(rows, '(c) seam opening, px (= D)',         open_px,   3.999, 4.001, '%.4f');
+    rows = chk(rows, '(d) NaN end invalid (snap off)',     off_valid, -0.5, 0.5, '%.0f');
+    rows = chk(rows, '(d) NaN end recovered (snap on)',    on_valid,  0.5, 1.5, '%.0f');
+    rows = chk(rows, '(e) stack yields 2-col curve',       ncol,      2, 2, '%.0f');
+    rows = chk(rows, '(e) stack readings correct',         double(stk_ok), 0.5, 1.5, '%.0f');
+end
+
 function rows = test_dice_gold()
 % Validation against the bundled official DICe gold result (frame 01).
 % Regression intervals around the values measured on R2025b, 2026-06-12:
@@ -587,4 +935,222 @@ end
 function rows = test_beam()
     evalc('run(proj(''8_FEM_beam'', ''beam_fem.m''))');
     rows = {'ran without errors (check ~420 Hz on the tip plot)', 1, ''};
+end
+
+function rows = test_surf_strain()
+% Surface (membrane) strain from stereo 3D points (surf_strain.m). Purely
+% synthetic and deterministic - no images needed. Checks the defining
+% properties of the algorithm: (1) an exactly known in-plane affine
+% deformation of a tilted plane is recovered to machine precision
+% (principal strains, frame-independent); (2) rigid-body motion of a
+% curved (cylindrical) surface gives zero strain; (3) a uniform axial
+% stretch lambda of the cylinder gives principal strains
+% [(lambda^2-1)/2, 0]; (4) all of it survives a NaN hole in the grid.
+    rows = {};
+    addpath(proj('11_Stereo'));
+
+    % --- 1) tilted flat plane, exact in-plane affine deformation ---
+    [gx, gy] = meshgrid((0:39)*1.3, (0:29)*1.7);
+    R0 = rotv([1; 2; 0.5], 0.4);
+    A  = [gx(:), gy(:), zeros(numel(gx),1)] * R0.';   % plane in 3D
+    e1g = R0(:,1); e2g = R0(:,2); ng = R0(:,3);
+    Fin = [1.013 0.004; 0.004 0.9945];                % in-plane gradient
+    loc  = [A*e1g, A*e2g];
+    locd = loc * Fin.';
+    Ad = locd(:,1)*e1g.' + locd(:,2)*e2g.' + (A*ng)*ng.';
+    Xref = reshape(A,  [size(gx) 3]);
+    Xdef = reshape(Ad, [size(gx) 3]);
+    E = surf_strain(Xref, Xdef);
+    lam_gt = sort(eig(0.5*(Fin.'*Fin - eye(2))));
+    err = 0;
+    for i = 4:size(gx,1)-3
+        for j = 4:size(gx,2)-3
+            lam = sort(eig([E.exx(i,j) E.exy(i,j); E.exy(i,j) E.eyy(i,j)]));
+            err = max(err, max(abs(lam - lam_gt)));
+        end
+    end
+    rows = chk(rows, 'flat affine: principal-strain error', err, 0, 1e-9, '%.1e');
+
+    % --- 2) cylinder patch, rigid-body motion -> zero strain ---
+    [TH, Z] = meshgrid(linspace(-0.5, 0.5, 45), linspace(0, 60, 35));
+    Rc = 80;
+    pts = cat(3, Rc*sin(TH), Z, Rc*(1-cos(TH)));
+    Rb = rotv([0.2; 1; 0.1], 0.25);
+    Xd = reshape(reshape(pts, [], 3) * Rb.' + [5 -3 2], size(pts));
+    E = surf_strain(pts, Xd);
+    mx = max(abs([E.exx(:); E.eyy(:); E.exy(:)]), [], 'omitnan');
+    rows = chk(rows, 'cylinder rigid body: max |strain|', mx, 0, 1e-8, '%.1e');
+
+    % --- 3) cylinder axial stretch: principal strains vs analytic ---
+    lam = 1.008;
+    Xd = pts; Xd(:,:,2) = Xd(:,:,2) * lam;
+    E = surf_strain(pts, Xd);
+    E1gt = 0.5*(lam^2 - 1);
+    err = 0;
+    for i = 4:size(pts,1)-3
+        for j = 4:size(pts,2)-3
+            v = sort(eig([E.exx(i,j) E.exy(i,j); E.exy(i,j) E.eyy(i,j)]));
+            err = max(err, max(abs(v - [0; E1gt])));
+        end
+    end
+    rows = chk(rows, 'cylinder stretch: error vs (lam^2-1)/2', err, 0, 1e-6, '%.1e');
+
+    % --- 4) NaN hole in the grid: still correct around it ---
+    ptsh = pts; Xdh = Xd;
+    ptsh(11:14, 21:26, :) = NaN; Xdh(11:14, 21:26, :) = NaN;
+    E = surf_strain(ptsh, Xdh);
+    err = 0; nv = 0;
+    for i = 4:size(pts,1)-3
+        for j = 4:size(pts,2)-3
+            if ~isfinite(E.exx(i,j)), continue; end
+            nv = nv + 1;
+            v = sort(eig([E.exx(i,j) E.exy(i,j); E.exy(i,j) E.eyy(i,j)]));
+            err = max(err, max(abs(v - [0; E1gt])));
+        end
+    end
+    rows = chk(rows, 'with a hole: strain error', err, 0, 1e-6, '%.1e');
+    rows = chk(rows, 'with a hole: valid interior nodes', nv, 800, 1e9, '%.0f');
+end
+
+function R = rotv(ax, ang)
+% Rotation matrix about axis AX by ANG rad (Rodrigues).
+    ax = ax(:) / norm(ax);
+    K = [0 -ax(3) ax(2); ax(3) 0 -ax(1); -ax(2) ax(1) 0];
+    R = eye(3) + sin(ang)*K + (1 - cos(ang))*(K*K);
+end
+
+function rows = test_gt_gen()
+% Synthetic ground-truth factory (12_Datasets/gen_dataset.m). The imaging
+% chain is interpolation-free by construction (analytic Gaussian speckles,
+% exact inverse warp), so the checks are sharp: the reported inverse-warp
+% residual must be at machine level, the untouched 2D engine must recover
+% a noise-free affine field to a few hundredths of a pixel (first-order
+% subset shape function matches an affine field exactly), and the same
+% seed must reproduce the images bit-for-bit.
+    rows = {};
+    addpath(proj('12_Datasets'), proj('6_DIC'));
+    od = tempname;
+    M = gen_dataset(struct('outdir', od, 'n_pairs', 2, 'imsize', [256 256], ...
+        'field', 'affine', 'noise_std', 0, 'illum_grad', 0, 'seed', 42));
+    rows = chk(rows, 'inverse-warp residual, px', ...
+        max([M.qa.inv_residual]), 0, 1e-8, '%.1e');
+
+    I0 = double(imread(fullfile(od, 'pair_0001_ref.png'))) / 65535;
+    I1 = double(imread(fullfile(od, 'pair_0001_def.png'))) / 65535;
+    S  = load(fullfile(od, 'pair_0001_gt.mat'));
+    P = struct('subset_size', 21, 'grid_step', 12, 'search_range', 8, ...
+        'black_thr', 0.05, 'zncc_min', 0.6, 'max_iter', 30, 'conv_tol', 1e-3);
+    R = dic_engine(I0, I1, P);
+    [GX, GY] = meshgrid(R.gx, R.gy);
+    idx = sub2ind(size(S.U), GY, GX);      % GT is 0-based-coord array: U(gy,gx)
+    m = ~isnan(R.U);
+    du = R.U(m) - S.U(idx(m));
+    dv = R.V(m) - S.V(idx(m));
+    rows = chk(rows, 'engine vs GT: points', nnz(m), 100, 1e9, '%.0f');
+    rows = chk(rows, 'engine vs GT: RMS u, px', sqrt(mean(du.^2)), 0, 0.02, '%.4f');
+    rows = chk(rows, 'engine vs GT: RMS v, px', sqrt(mean(dv.^2)), 0, 0.02, '%.4f');
+    rows = chk(rows, 'engine vs GT: |bias u|, px', abs(mean(du)), 0, 0.01, '%.4f');
+
+    od2 = tempname;
+    gen_dataset(struct('outdir', od2, 'n_pairs', 1, 'imsize', [256 256], ...
+        'field', 'affine', 'noise_std', 0, 'illum_grad', 0, 'seed', 42));
+    same = isequal(imread(fullfile(od,  'pair_0001_ref.png')), ...
+                   imread(fullfile(od2, 'pair_0001_ref.png'))) && ...
+           isequal(imread(fullfile(od,  'pair_0001_def.png')), ...
+                   imread(fullfile(od2, 'pair_0001_def.png')));
+    rows = chk(rows, 'same seed => bit-identical images', double(same), 0.5, 1.5, '%.0f');
+    try rmdir(od, 's');  catch, end
+    try rmdir(od2, 's'); catch, end
+end
+
+function rows = test_validator()
+% External-field validator (13_Validator). Round trip: the DICe gold file
+% itself, read by the universal importer and validated against itself,
+% must show zero error and PASS - this exercises the comment skipping,
+% header-name mapping, SIGMA filtering, interpolation and verdict logic.
+% A header-less shuffled CSV of the same points must give the same PASS.
+    rows = {};
+    addpath(proj('13_Validator'));
+    gold = proj('9_Validation_DICe', 'dice_reference', 'DICe_solution_0.txt');
+    E = import_external_dic(gold);
+    rows = chk(rows, 'gold parsed: points', E.info.n_points, 900, 1100, '%.0f');
+
+    od = tempname; mkdir(od);
+    R = validate_external(gold, struct('outdir', od));
+    rows = chk(rows, 'round-trip |bias u|, px', abs(R.bias_u), 0, 1e-9, '%.1e');
+    rows = chk(rows, 'round-trip RMS v, px', R.rms_v, 0, 1e-9, '%.1e');
+    rows = chk(rows, 'round-trip verdict = PASS', double(R.pass), 0.5, 1.5, '%.0f');
+
+    rng(1, 'twister');
+    T = [E.x, E.y, E.u, E.v];
+    T = T(randperm(size(T, 1)), :);
+    f2 = fullfile(od, 'plain.csv');
+    fid = fopen(f2, 'w');
+    fprintf(fid, '%.9g,%.9g,%.9g,%.9g\n', T.');
+    fclose(fid);
+    R2 = validate_external(f2, struct('outdir', od));
+    rows = chk(rows, 'header-less CSV verdict = PASS', double(R2.pass), 0.5, 1.5, '%.0f');
+    try rmdir(od, 's'); catch, end
+end
+
+function rows = test_stereo_dataset(dataDir)
+% OPT-IN welded-plate stereo regression (RUN_TESTS('stereo-data')). Runs the
+% full validation END-TO-END on the local dataset and freezes the numbers
+% from the 2026-07-14 validation (multi-seed engine, speckle-zone verdict).
+% NOT in the base suite: it depends on an external dataset and takes minutes.
+% Layouts supported: images mixed in dataDir (historical, auto-split), or
+% the 2026-07-13 relayout with Dataset\ + Calibration\ subfolders (21r.csv
+% at the dataset root is copied next to the results if needed).
+% Frozen reference - our handheld Zhang calibration at the true 7 mm pitch,
+% vs the Vic-3D L0 line export (21r.csv):
+%   cam0 reprojection RMS 0.2170 px, cam1 0.2234 px, baseline 272.83 mm;
+%   SPECKLE-ZONE depth agreement s_z 0.98 with worst per-state rms ~2 um
+%   (the all-row s_z is NOT gated: over the bare weld zone Vic's export is
+%   an interpolated bridge, not a measurement - see compare_vic3d header);
+%   multi-seed keeps >= 4000 valid nodes per deformed state (was ~2800
+%   when the single front died at the weld line).
+% Intervals carry modest headroom around the measured values.
+    addpath(proj('11_Stereo'), proj('6_DIC'));
+    if ~isfolder(dataDir)
+        error(['stereo dataset not found at %s - move it there or call ' ...
+               'RUN_TESTS(''stereo-data'', ''<path to DIC 3D dataset>'').'], dataDir);
+    end
+    if ~isfile(fullfile(dataDir, '21r.csv'))
+        error(['%s has no 21r.csv (the Vic-3D L0 export) - nothing to ' ...
+               'compare against.'], dataDir);
+    end
+
+    % layout: split Dataset\/Calibration\ subfolders, or mixed single folder
+    if isfolder(fullfile(dataDir, 'Dataset')) && ...
+            isfolder(fullfile(dataDir, 'Calibration'))
+        runDir = fullfile(dataDir, 'Dataset');
+        calDir = fullfile(dataDir, 'Calibration');
+        if ~isfile(fullfile(runDir, '21r.csv'))
+            copyfile(fullfile(dataDir, '21r.csv'), runDir);
+        end
+        if isfile(fullfile(dataDir, 'project.xml')) && ...
+                ~isfile(fullfile(runDir, 'project.xml'))
+            copyfile(fullfile(dataDir, 'project.xml'), runDir);
+        end
+        evalc('run_stereo_dataset(runDir, ''Pitch'', 7, ''CalDir'', calDir)');
+    else
+        runDir = dataDir;
+        evalc('run_stereo_dataset(dataDir, ''Pitch'', 7)');
+    end
+    outDir = fullfile(runDir, 'litedic_out');
+    out = compare_vic3d(runDir);
+
+    cal = load(fullfile(outDir, 'cal_stereo.mat'), 'rms0', 'rms1');
+    Lr  = load(fullfile(outDir, 'stereo_results.mat'), 'G', 'S');
+    baseline_mm = norm(Lr.G.T);      % pitch=7 -> object points in mm -> mm
+    nv = arrayfun(@(f) f.nvalid, Lr.S.frames(2:end));
+
+    rows = {};
+    rows = chk(rows, 'cam0 reprojection RMS, px', cal.rms0, 0.200, 0.235, '%.4f');
+    rows = chk(rows, 'cam1 reprojection RMS, px', cal.rms1, 0.205, 0.242, '%.4f');
+    rows = chk(rows, 'stereo baseline, mm',       baseline_mm, 271.0, 274.5, '%.2f');
+    rows = chk(rows, 'speckle-zone depth agreement s_z', out.s_z_speckle, 0.955, 1.010, '%.3f');
+    rows = chk(rows, 'speckle-zone rms (worst state), mm', out.rms_max_speckle, 0, 0.004, '%.4f');
+    rows = chk(rows, 'speckle rows used', out.n_speckle, 80, Inf, '%.0f');
+    rows = chk(rows, 'multi-seed: min valid nodes per state', min(nv), 4000, Inf, '%.0f');
 end
