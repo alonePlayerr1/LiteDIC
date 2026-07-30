@@ -85,7 +85,7 @@ function START
         'FontSize',13,'FontColor',col.sub);
     lblS.Layout.Row = 2; lblS.Layout.Column = 1;
 
-    bFolder = uibutton(hgl,'Text','Project folder','FontSize',13,'FontWeight','bold', ...
+    bFolder = uibutton(hgl,'Text',' Project folder','FontSize',13,'FontWeight','bold', ...
         'BackgroundColor',col.card,'FontColor',col.txt, ...
         'ButtonPushedFcn',@(~,~) openFolder(rootDir));
     bFolder.Layout.Row = 1; bFolder.Layout.Column = 2;
@@ -166,7 +166,7 @@ function onRun(fig, a)
     scriptPath = fullfile(S.rootDir, a.folder, a.file);
 
     if ~isfile(scriptPath)
-        S.status.Text = ['ERROR: file not found: ' a.folder '/' a.file];
+        S.status.Text = ['File not found: ' a.folder '/' a.file];
         S.status.FontColor = [0.95 0.45 0.45];
         return;
     end
@@ -189,7 +189,7 @@ function onRun(fig, a)
             out = sprintf('"%s" finished.\nSee the opened figure windows for results.', a.name);
         end
         S.console.Value = cellstr(splitlines(string(out)));
-        S.status.Text = sprintf('OK: %s  (%.1f s)', a.name, elapsed);
+        S.status.Text = sprintf('OK: Done: %s  (%.1f s)', a.name, elapsed);
         S.status.FontColor = [0.55 0.85 0.55];
     catch err
         msg = [{['ERROR while running "' a.name '":']}; {''}; {err.message}];
@@ -201,7 +201,7 @@ function onRun(fig, a)
             msg = [msg; {''}; {'The PDE Toolbox seems to be missing - this analysis requires it.'}];
         end
         S.console.Value = msg;
-        S.status.Text = ['ERROR: ' a.name '  (details in the output box)'];
+        S.status.Text = ['Error: ' a.name '  (details in the output box)'];
         S.status.FontColor = [0.95 0.45 0.45];
     end
 end

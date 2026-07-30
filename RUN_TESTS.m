@@ -11,8 +11,7 @@ function RUN_TESTS(mode, dataDir)
 %                                  %    independent of any external data)
 %       RUN_TESTS('stereo-data', '<path to DIC 3D dataset>')  % custom path
 %
-% The report is printed, saved to TEST_REPORT.txt and copied to the
-% clipboard.
+% The report is printed and saved to TEST_REPORT.txt.
 
 if nargin < 1, mode = 'base'; end
 if nargin < 2 || isempty(dataDir)
@@ -102,12 +101,7 @@ rep = strjoin(L, newline);
 fprintf('\n%s\n', rep);
 fid = fopen(fullfile(root, 'TEST_REPORT.txt'), 'w', 'n', 'UTF-8');
 if fid > 0, fwrite(fid, rep); fclose(fid); end
-try
-    clipboard('copy', rep);
-    fprintf('\nReport copied to the CLIPBOARD and saved to TEST_REPORT.txt.\n');
-catch
-    fprintf('\nReport saved to TEST_REPORT.txt.\n');
-end
+fprintf('\nReport saved to TEST_REPORT.txt.\n');
 end
 
 % ===================== framework =====================
@@ -296,7 +290,7 @@ function rows = test_dicpro()
     rows = chk(rows, 'self-test: |error u|, px', abs(eu), 0, 0.02, '%.5f');
     rows = chk(rows, 'self-test: |error v|, px', abs(ev), 0, 0.02, '%.5f');
     rows = chk(rows, 'self-test: spurious strains', smax, 0, 5e-4, '%.1e');
-    % Loading series ("series" shadows a toolbox function, copy first).
+    % Loading series ("series" shadows a toolbox function - copy first).
     % These are the README checkpoints as INVARIANTS of any monotonic
     % loading series, not values pinned to specific frames.
     % Regression intervals calibrated on the canonical TIFF series

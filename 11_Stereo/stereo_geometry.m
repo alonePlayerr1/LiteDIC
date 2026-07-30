@@ -4,7 +4,7 @@ function G = stereo_geometry(opts)
 %   G = STEREO_GEOMETRY() gathers everything the stereo DIC layer needs
 %   into one struct, computing or loading each piece:
 %     - per-camera intrinsics + distortion from cal_stereo.mat (recomputed
-%       via CALIBRATE_CAMERAS if the file is missing (it is a generated
+%       via CALIBRATE_CAMERAS if the file is missing - it is a generated
 %       artifact and not tracked),
 %     - the relative pose (R, T) camera0 -> camera1 via STEREO_EXTRINSICS
 %       (T in pitch units, since calibration used unit pitch),
