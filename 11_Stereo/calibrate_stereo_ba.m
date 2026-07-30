@@ -28,6 +28,9 @@ function B = calibrate_stereo_ba(cal, opts)
 %     .verbose  print per-iteration RMS (default true)
 %     .fixdist  hold both distortion models fixed (default false)
 %     .skew     solve for the sensor skew fs (default FALSE - see below)
+%     .reject   drop an OBSERVATION whose reprojection residual exceeds
+%               median + this many robust sigmas, then refit (default 8;
+%               Inf keeps everything). See the note by the rejection.
 %
 %   Returns B:
 %     .K0 .dist0 .K1 .dist1   refined intrinsics / [k1 k2]
@@ -37,6 +40,7 @@ function B = calibrate_stereo_ba(cal, opts)
 %     .views                  view ids used
 %     .rms .rms0 .rms1        reprojection RMS, both cameras and per camera
 %     .rms_before             the same, before refinement
+%     .dropped                observations rejected as mis-associated
 %     .converged              true if LM stopped improving rather than
 %                             running out of iterations
 %
@@ -44,19 +48,24 @@ function B = calibrate_stereo_ba(cal, opts)
 %   stores for exactly this purpose. Base MATLAB, no toolboxes; the Jacobian
 %   is assembled sparse, so the per-view pose blocks cost nothing.
 %
-%   Known limit. On the ViC3D rig the adjustment settles at 0.49 px total,
-%   split 0.12 px on camera 0 and 0.68 px on camera 1, against a reference
-%   calibration that reaches 0.06 px on both. Checked and ruled out:
-%   missing skew (see REPROJ below), and the parameterisation:
-%   refitting with the view poses expressed in
-%   camera 1's frame instead of camera 0's leaves the split exactly where it
-%   was (0.4913 total, 0.68 on camera 1, 0.12 on camera 0), so it follows
-%   the camera, not the reference frame. Probably a per-camera model
-%   error that only shows once the two are tied to one rigid pose, e.g.
-%   a viewing-angle-dependent bias in the dot centres (camera 1 sees
-%   the target at 8-12.5 deg, camera 0 at 2-9.5 deg), which each camera can
-%   absorb into its own intrinsics while free and neither can when coupled.
-%   To check in the detector. Open.
+%   ViC3D rig vs the reference calibration of the same 75 views:
+%
+%     stage                        fx cam0/cam1   ratio  baseline   RMS
+%     per-camera Zhang             17271 / 14780  1.169   405.5 mm  0.14 px
+%     + joint adjustment           16339 / 16208  1.008   338.8 mm  0.49 px
+%     + rejecting mis-associations 16138 / 16126  1.0007  340.6 mm  0.115 px
+%     reference (Vic-3D)           16005 / 15968  1.0023  340.0 mm  0.060 px
+%
+%   End to end, out-of-plane displacement went from 4.1 % low, to 2.2 % high,
+%   to 0.7 % high. Dead ends: the residual split was not missing skew (see
+%   REPROJ below); moving the view poses into camera 1's frame does not test
+%   anything, it is the same model reparameterised. Actual cause: see the
+%   rejection note below.
+%
+%   Still open: 0.115 px against the reference's 0.060 px. That gap is now
+%   symmetric between the cameras, so it looks like plain dot-centre noise
+%   rather than a missing model term - a quadratic field over the sensor
+%   explains only 0.10 px of it.
 %
 %   See also CALIBRATE_CAMERAS, CALIBRATE_ZHANG, CAL_CONDITIONING,
 %   STEREO_EXTRINSICS, STEREO_GEOMETRY.
@@ -67,6 +76,7 @@ function B = calibrate_stereo_ba(cal, opts)
     verbose = getf(opts, 'verbose', true);
     fixdist = getf(opts, 'fixdist', false);
     skew    = getf(opts, 'skew', false);   % measured to buy nothing here
+    reject  = getf(opts, 'reject', 8);     % robust sigmas; Inf = keep all
 
     if numel(cal.cam) < 2
         error('calibrate_stereo_ba:cams', 'Needs two calibrated cameras.');
@@ -127,35 +137,39 @@ function B = calibrate_stereo_ba(cal, opts)
     end
 
     % ---- Levenberg-Marquardt ----
-    lambda = 1e-3;  r = r0;  prev = rms_before;  converged = false;
-    for it = 1:iters
-        J = jacobian(p, obs, ridx, nres, free);
-        Jt = J.' * J;  g = J.' * r;
-        stepped = false;
-        for tries = 1:12
-            A = Jt + lambda * spdiags(full(diag(Jt)), 0, numel(free), numel(free));
-            dp = -A \ g;
-            pn = p; pn(free) = pn(free) + dp;
-            rn = residuals(pn, obs, ridx, nres);
-            cur = sqrt(mean(rn.^2));
-            if cur < prev
-                p = pn; r = rn;
-                lambda = max(lambda * 0.5, 1e-9);
-                stepped = true;
-                break;
+    [p, r, converged] = lm(p, obs, ridx, nres, free, iters, verbose);
+
+    % ---- robust rejection of mis-associated points, then refit ----
+    % A spurious blob in one calibration view makes INDEX_GRID hand a few
+    % dots the wrong target coordinates (gross errors): in view 55 of the
+    % ViC3D camera-1 set the median point
+    % residual is 0.216 px and the worst is 31.6 px, in the same view, with
+    % 141 dots detected where the target has 140. Per-camera Zhang hides it
+    % (a free pose per view per camera absorbs a lot); the joint fit cannot,
+    % and eight such views dragged camera 1 from 0.16 px to 0.68 px.
+    %
+    % Rejection is per POINT, not per view: throwing away a whole view would
+    % discard ~140 good observations to remove two bad ones. Threshold is loose,
+    % only for association failures (orders of magnitude out), not noise.
+    B.dropped = 0;
+    if isfinite(reject)
+        [keepm, ndrop, thr] = point_mask(obs, ridx, r, reject);
+        if ndrop > 0 && ndrop < 0.1 * numel(r) / 2
+            for k = 1:numel(obs)
+                m0 = keepm{k}.c0;  m1 = keepm{k}.c1;
+                obs(k).obj  = obs(k).obj(m0, :);   obs(k).uv0 = obs(k).uv0(m0, :);
+                obs(k).obj1 = obs(k).obj1(m1, :);  obs(k).uv1 = obs(k).uv1(m1, :);
             end
-            lambda = min(lambda * 4, 1e9);
+            B.dropped = ndrop;
+            if verbose
+                fprintf('  rejecting %d of %d observations over %.3f px\n', ...
+                    ndrop, numel(r)/2, thr);
+            end
+            [ridx, nres] = res_layout(obs);
+            % the residual is recomputed from p in the unpack below, over the
+            % kept observations, so the one this returns is not needed
+            [p, ~, converged] = lm(p, obs, ridx, nres, free, iters, verbose);
         end
-        if verbose && stepped
-            fprintf('  it %2d   RMS %.4f px\n', it, cur);
-        end
-        if ~stepped || abs(prev - cur) < 1e-7
-            % stopped because it could not improve, not because it ran out
-            % of iterations - the RMS reported below is recomputed from p
-            converged = stepped || it > 1;
-            break;
-        end
-        prev = cur;
     end
 
     % ---- unpack ----
@@ -182,6 +196,74 @@ function B = calibrate_stereo_ba(cal, opts)
             B.rms, B.rms0, B.rms1, rms_before, B.K0(1,1), B.K1(1,1), ...
             B.K0(1,1)/B.K1(1,1), cal.K0(1,1)/cal.K1(1,1), norm(B.T));
     end
+end
+
+% ===================== Levenberg-Marquardt =====================
+
+function [p, r, converged] = lm(p, obs, ridx, nres, free, iters, verbose)
+    lambda = 1e-3;
+    r = residuals(p, obs, ridx, nres);
+    prev = sqrt(mean(r.^2));
+    converged = false;  cur = prev;
+    for it = 1:iters
+        J = jacobian(p, obs, ridx, nres, free);
+        Jt = J.' * J;  g = J.' * r;
+        stepped = false;
+        for tries = 1:12
+            A = Jt + lambda * spdiags(full(diag(Jt)), 0, numel(free), numel(free));
+            dp = -A \ g;
+            pn = p; pn(free) = pn(free) + dp;
+            rn = residuals(pn, obs, ridx, nres);
+            cur = sqrt(mean(rn.^2));
+            if cur < prev
+                p = pn; r = rn;
+                lambda = max(lambda * 0.5, 1e-9);
+                stepped = true;
+                break;
+            end
+            lambda = min(lambda * 4, 1e9);
+        end
+        if verbose && stepped
+            fprintf('  it %2d   RMS %.4f px\n', it, cur);
+        end
+        if ~stepped || abs(prev - cur) < 1e-7
+            % stopped because it could not improve, not because it ran out
+            % of iterations
+            converged = stepped || it > 1;
+            break;
+        end
+        prev = cur;
+    end
+end
+
+function [keepm, ndrop, thr] = point_mask(obs, ridx, r, k)
+% Per-observation residual magnitude, and which ones to keep.
+    nv = numel(obs);
+    mag = [];
+    for q = 1:nv
+        mag = [mag; pmag(r, ridx{q}.c0); pmag(r, ridx{q}.c1)]; %#ok<AGROW>
+    end
+    thr = median(mag) + k * mad_sigma(mag);
+    keepm = cell(1, nv);  ndrop = 0;
+    for q = 1:nv
+        m0 = pmag(r, ridx{q}.c0) <= thr;
+        m1 = pmag(r, ridx{q}.c1) <= thr;
+        keepm{q} = struct('c0', m0, 'c1', m1);
+        ndrop = ndrop + nnz(~m0) + nnz(~m1);
+    end
+end
+
+function m = pmag(r, idx)
+% residuals come stacked [du1 dv1 du2 dv2 ...] per block
+    if isempty(idx), m = zeros(0, 1); return; end
+    e = reshape(r(idx), 2, []).';
+    m = sqrt(sum(e.^2, 2));
+end
+
+function s = mad_sigma(x)
+    s = 1.4826 * median(abs(x - median(x)));
+    if s <= 0, s = std(x); end
+    if s <= 0, s = eps; end
 end
 
 % ===================== residuals =====================

@@ -1,5 +1,5 @@
-PROJECT TEST REPORT - 2026-07-30 15:18
-MATLAB 25.2.0.2998904 (R2025b) | mode: base | time: 116 s
+PROJECT TEST REPORT - 2026-07-30 18:48
+MATLAB 25.2.0.2998904 (R2025b) | mode: base | time: 110 s
 TOTAL: 131 PASS, 0 FAIL, 0 ERRORS
 
 --- CLT (plate_clt.m)
@@ -122,22 +122,22 @@ TOTAL: 131 PASS, 0 FAIL, 0 ERRORS
 [PASS] fx agrees with DICe cal.xml (<3%): 0.0108 (reference 0 .. 0.03)
 --- Stereo extrinsics+triangulation (11_Stereo)
 [PASS] common stereo views: 9 (reference 8 .. 9)
-[PASS] rel rotation cam0->cam1, deg: 18.681 (reference 18.3 .. 19.1)
+[PASS] rel rotation cam0->cam1, deg: 18.715 (reference 18.3 .. 19.1)
 [PASS] baseline consistency CV, %: 0.000 (reference 0 .. 1.5)
-[PASS] triangulation planarity RMS, pitch: 0.0068 (reference 0 .. 0.02)
-[PASS] reconstructed pitch, units: 0.9997 (reference 0.99 .. 1.01)
-[PASS] reconstructed pitch CV, %: 0.332 (reference 0 .. 1)
-[PASS] anchored dot pitch (DICe mm), mm: 7.004 (reference 6.5 .. 7.6)
+[PASS] triangulation planarity RMS, pitch: 0.0070 (reference 0 .. 0.02)
+[PASS] reconstructed pitch, units: 0.9996 (reference 0.99 .. 1.01)
+[PASS] reconstructed pitch CV, %: 0.335 (reference 0 .. 1)
+[PASS] anchored dot pitch (DICe mm), mm: 6.987 (reference 6.5 .. 7.6)
 --- Stereo DIC vs DICe gold (11_Stereo)
 [PASS] matched points at gold centres: 103 (reference 95 .. 115)
 [PASS] gold pairs epipolar RMS (DICe cal.xml geometry), px: 0.140 (reference 0 .. 0.5)
-[PASS] gold pairs epipolar RMS (9-view geometry), px: 0.152 (reference 0 .. 1.5)
+[PASS] gold pairs epipolar RMS (9-view geometry), px: 0.129 (reference 0 .. 1.5)
 [PASS] frame0 disparity vs gold: median, px: 0.050 (reference 0 .. 0.1)
 [PASS] frame0 disparity vs gold: RMS x, px: 0.103 (reference 0 .. 0.15)
 [PASS] frame0 disparity vs gold: RMS y, px: 0.059 (reference 0 .. 0.12)
 [PASS] frame5 temporal vs gold: RMS x, px: 0.0073 (reference 0 .. 0.015)
 [PASS] frame5 temporal vs gold: RMS y, px: 0.0059 (reference 0 .. 0.015)
-[PASS] frame0 3D surface RMS vs gold, mm: 0.0188 (reference 0 .. 0.04)
+[PASS] frame0 3D surface RMS vs gold, mm: 0.0187 (reference 0 .. 0.04)
 --- Surface strain (surf_strain.m)
 [PASS] flat affine: principal-strain error: 4.4e-15 (reference 0 .. 1e-09)
 [PASS] cylinder rigid body: max |strain|: 5.7e-15 (reference 0 .. 1e-08)
