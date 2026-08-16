@@ -88,12 +88,59 @@ O.CalDir     = '';   % separate calibration-image folder: when set, every
                      % views are taken from CalDir (the common layout where
                      % cal images live in their own folder). Default '' =
                      % calibration + test mixed in dataDir (SplitAt/detect).
+O.TestOnly   = [];   % true: every pair in dataDir is a test pair and no
+                     % target views are looked for (e.g. a folder with one
+                     % specimen's frames); skips a detector pass over the
+                     % whole series. Default [] = work it out by detection.
+O.Cal        = '';   % an ALREADY COMPUTED calibration: a path to a
+                     % cal_stereo.mat, or the struct CALIBRATE_CAMERAS
+                     % returns. When set, no target views are needed or
+                     % looked at and no calibration is solved - this run
+                     % uses that geometry as given. See the note below.
 for a = 1:2:numel(varargin)
     O.(varargin{a}) = varargin{a+1};
 end
+% 'Cal' separates correlation errors from calibration errors: same
+% calibration on two runs -> any difference is the engine; two calibrations
+% on the same frames -> any difference is the calibration. Also the normal
+% lab workflow (calibrate once, shoot all day).
+if ~isempty(O.Cal) && ~isempty(O.VicCal)
+    error('run_stereo_dataset:twocals', ...
+        ['''Cal'' and ''VicCal'' both name a calibration to use. Pick one - ' ...
+         'silently preferring either would make the output untraceable.']);
+end
+% A supplied calibration is loaded here first, two decisions below depend
+% on what is in it.
+calSrc = '';
+calGiven = [];
+if ~isempty(O.Cal)
+    if isstruct(O.Cal)
+        calGiven = O.Cal; calSrc = '(in memory)';
+    elseif isfile(O.Cal)
+        calGiven = load(O.Cal); calSrc = O.Cal;
+    else
+        error('run_stereo_dataset:calfile', ...
+            'No such calibration file: %s', O.Cal);
+    end
+    for need = {'K0', 'K1', 'dist0', 'dist1'}
+        if ~isfield(calGiven, need{1})
+            error('run_stereo_dataset:calfields', ...
+                ['%s is not a calibration from CALIBRATE_CAMERAS - no ''%s'' ' ...
+                 'field.'], calSrc, need{1});
+        end
+    end
+end
+haveCal = ~isempty(calGiven) || ~isempty(O.VicCal);
+
 % Output units: a real pitch (mm) or a Vic-3D calibration means mm,
 % otherwise pitch units. Computed once here so all printed lines agree.
-units = tern(O.Pitch == 1 && isempty(O.VicCal), 'pitch units', 'mm');
+% A supplied calibration carries its own pitch (the one it was solved at),
+% that one wins over this run's 'Pitch' option.
+calPitch = O.Pitch;
+if ~isempty(calGiven) && isfield(calGiven, 'pitch') && isscalar(calGiven.pitch)
+    calPitch = calGiven.pitch;
+end
+units = tern(calPitch == 1 && isempty(O.VicCal), 'pitch units', 'mm');
 outDir = fullfile(dataDir, 'litedic_out');
 if ~exist(outDir, 'dir'), mkdir(outDir); end
 
@@ -119,6 +166,11 @@ else
     cal_caldir = dataDir;
     if ~isempty(O.SplitAt)
         is_cal = nums < O.SplitAt;
+    elseif isequal(O.TestOnly, true)
+        % Caller says every pair here is a test pair. Not inferred from a
+        % supplied calibration: detection also keeps target views out of
+        % the test series, a mixed folder still needs that.
+        is_cal = false(size(stems));
     else
         fprintf('No SplitAt/CalDir - classifying every stem by target detection (slow)...\n');
         is_cal = false(size(stems));
@@ -140,7 +192,10 @@ else
     fprintf('Split: %d calibration views, %d test pairs (%s ... %s)\n\n', ...
         numel(cal_stems), numel(test_stems), test_stems{1}, test_stems{end});
 end
-if numel(cal_stems) < 3 || numel(test_stems) < 2
+if numel(test_stems) < 2
+    error('run_stereo_dataset: fewer than 2 test pairs - check SplitAt / CalDir.');
+end
+if ~haveCal && numel(cal_stems) < 3
     error('run_stereo_dataset: implausible split - check SplitAt / CalDir.');
 end
 
@@ -152,6 +207,37 @@ if ~isempty(O.VicCal)
     % reads it as this run's calibration.
     stale = fullfile(outDir, 'cal_stereo.mat');
     if isfile(stale), delete(stale); end
+elseif ~isempty(calGiven)
+% Supplied calibration: nothing is solved, no target view read. Geometry
+% is rebuilt from the stored intrinsics and poses the same way as after a
+% fresh solve.
+cal = calGiven;
+% Copy it next to the results (the app reads cal_stereo.mat from the
+% output folder for the reprojection RMS).
+try
+    save(fullfile(outDir, 'cal_stereo.mat'), '-struct', 'cal');
+catch err
+    warning('run_stereo_dataset:calcopy', ...
+        'Could not copy the supplied calibration into %s (%s)', outDir, err.message);
+end
+fprintf('Using the supplied calibration: %s\n', calSrc);
+if isfield(cal, 'rms0') && isfield(cal, 'rms1')
+    fprintf('  as solved: reprojection RMS %.4f / %.4f px', cal.rms0, cal.rms1);
+    if isfield(cal, 'nviews'), fprintf(' on %d views', cal.nviews); end
+    fprintf('\n');
+end
+go = struct();
+go.cal     = cal;
+go.dicecal = 'THIS_RIG_HAS_NO_DICE_CAL';
+G = stereo_geometry(go);
+if ~isfinite(G.pitch_mm)
+    G.pitch_mm    = 1;
+    G.T_mm        = G.T;
+    G.baseline_mm = norm(G.T);
+end
+fprintf(['\nGeometry: baseline %.2f (%s) | toe-in %.2f deg ' ...
+    '(spread %.2f) | rig rigidity T_cv %.3f\n\n'], ...
+    norm(G.T), units, G.E.ang_deg, G.E.ang_std, G.E.T_cv);
 else
 co = struct();
 co.caldir = cal_caldir;
@@ -212,13 +298,25 @@ I0r = imread(f0{1});
 if isinteger(I0r), I0r = double(I0r) / double(intmax(class(I0r)));
 else, I0r = double(I0r); end
 if ndims(I0r) == 3, I0r = mean(I0r, 3); end
+bands = [];
 if ~isempty(O.Roi)
     roi = O.Roi;
 else
-    roi = detect_strip(I0r);
+    [roi, bands] = detect_strip(I0r);
 end
-fprintf('Specimen ROI (cam0 reference): x %d..%d, y %d..%d\n\n', ...
+fprintf('Specimen ROI (cam0 reference): x %d..%d, y %d..%d\n', ...
     roi(1), roi(1)+roi(3), roi(2), roi(2)+roi(4));
+% A specimen speckled in separate zones is measured over the bare span
+% between them; the nodes there fail and are dropped. Print it, otherwise
+% a run with one zone measured looks normal (DIC 3D dataset).
+if size(bands, 1) > 1
+    txt = arrayfun(@(k) sprintf('%d..%d', bands(k,1), bands(k,2)), ...
+        1:size(bands,1), 'UniformOutput', false);
+    fprintf(['  %d textured bands merged into it (rows %s) - the bare span ' ...
+        'between them\n  is measured over, so expect dead nodes there\n'], ...
+        size(bands, 1), strjoin(txt, ', '));
+end
+fprintf('\n');
 
 P = struct();
 P.subset_size     = O.SubsetSize;
@@ -406,9 +504,23 @@ prof = struct('stem', {}, 's', {}, 'W', {});
 for k = 1:numel(sel)
     D = S.frames(k).D;
     q = D.Q(isfinite(D.Q));
-    fprintf('%-10s shift [%4d %4d] | valid %6d | cross ZNCC med %.3f | epi med %.3f px\n', ...
+    % nseeds is how many separate fronts the cross field needed. It belongs
+    % on this line because it is the only thing that distinguishes "this
+    % region is untrackable" from "this region was never reached": both
+    % leave NaN, and only the seed count says which.
+    % Warn only on one large unreached area, not on the scattered NaNs any
+    % fine-grid run has (otherwise it fires on every state).
+    ns = '';
+    if isfield(D, 'nseeds')
+        ns = sprintf(' | seeds %d', D.nseeds);
+        if isfield(D, 'unreached_max') && D.unreached_max > 0.05
+            ns = sprintf('%s | UNREACHED: one connected %.0f%% of the speckle was never seeded', ...
+                ns, 100 * D.unreached_max);
+        end
+    end
+    fprintf('%-10s shift [%4d %4d] | valid %6d | cross ZNCC med %.3f | epi med %.3f px%s\n', ...
         test_stems{sel(k)}, D.shift(1), D.shift(2), S.frames(k).nvalid, ...
-        median(q), S.frames(k).epi_med);
+        median(q), S.frames(k).epi_med, ns);
     if k >= 2
         d3  = S.frames(k).d3D_mm;
         Wn  = reshape(reshape(d3, [], 3) * nrm, nY, nX);   % normal deflection

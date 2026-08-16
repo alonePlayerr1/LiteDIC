@@ -20,8 +20,17 @@ function out = compare_vic3d(dataDir)
 %   out.rms_speckle    per-state overlay rms on speckled rows, mm
 %   out.rms_max_speckle max over states, mm
 %   out.n_speckle      number of speckled profile rows used
-%   out.pass           speckle-zone verdict: |s_z_speckle - 1| <= 0.05
-%                      and rms_max_speckle <= 0.005 mm
+%   out.cover          fraction of the Vic line our measured window spans
+%   out.curv_vic       curvature (detrended std) on the window BOTH cover, mm
+%   out.curv_ours      the same for our profile - comparable, unlike the raw
+%                      table, which detrends each side over its own span
+%   out.agreed         |s_z_speckle - 1| <= 0.05 and rms_max_speckle <= 5 um
+%   out.pass           the binding verdict: agreed AND cover >= 0.80
+%
+% Coverage is in the verdict because everything else is computed on the
+% overlap of the two lines: half a specimen compared with the same half of
+% the reference looks the same as a full one (DIC 3D dataset: s_z 0.993,
+% 0.6 um worst residual with half measured).
 %
 % Speckle-only verdict: Vic-3D (like any DIC) only measures where there is
 % speckle, over bare regions its line export is interpolated. Comparing
@@ -108,15 +117,25 @@ function out = compare_vic3d(dataDir)
     % restrict to the SPECIMEN AOI from the Vic project (the frame also
     % contains the testing machine, which Vic masked with polygons; the
     % first polygon is the specimen gauge region)
+    % All polygons, not only the first: a specimen painted in separate zones
+    % has one polygon per zone in Vic, reading the first restricts the
+    % comparison to that zone (DIC 3D dataset). Rows between polygons stay out:
+    % Vic does not measure there either, its export just bridges them.
     xmlf = aux_file(dataDir, 'project.xml');
     if isfile(xmlf)
-        ol = regexp(fileread(xmlf), '<outline>([^<]*)</outline>', 'tokens', 'once');
+        ol = regexp(fileread(xmlf), '<outline>([^<]*)</outline>', 'tokens');
         if ~isempty(ol)
-            vtx = sscanf(ol{1}, '%f');
-            ys = vtx(2:2:end);
-            keep = keep & L.S.gy(:) >= min(ys) & L.S.gy(:) <= max(ys);
-            fprintf('Specimen AOI from project.xml: image rows %.0f..%.0f px\n', ...
-                min(ys), max(ys));
+            inAoi = false(size(L.S.gy(:)));
+            txt = cell(1, numel(ol));
+            for q = 1:numel(ol)
+                vtx = sscanf(ol{q}{1}, '%f');
+                ys = vtx(2:2:end);
+                inAoi = inAoi | (L.S.gy(:) >= min(ys) & L.S.gy(:) <= max(ys));
+                txt{q} = sprintf('%.0f..%.0f', min(ys), max(ys));
+            end
+            keep = keep & inAoi;
+            fprintf('Specimen AOI from project.xml: %d polygon(s), image rows %s px\n', ...
+                numel(ol), strjoin(txt, ' + '));
         end
     end
     fprintf('Rows: %d finite, %d follow the load evolution (kept)\n', ...
@@ -159,8 +178,18 @@ function out = compare_vic3d(dataDir)
         fprintf('%-10s %10.4f %10.4f %8.3f\n', names{k}, ...
             std(wdv), std(wdo), std(wdv) / std(wdo));
     end
-    fprintf('Line spans: vic %.1f mm | ours %.1f mm\n', ...
-        max(Vic{1}.Y) - min(Vic{1}.Y), max(yo(mfin)) - min(yo(mfin)));
+    span_vic  = max(Vic{1}.Y) - min(Vic{1}.Y);
+    span_ours = max(yo(mfin)) - min(yo(mfin));
+    fprintf('Line spans: vic %.1f mm | ours %.1f mm\n', span_vic, span_ours);
+    % Ratios above detrend each side over its own span, only meaningful when
+    % spans agree. DIC 3D dataset: 131 mm vs 61 mm, ratios 23x..105x, but on
+    % the shared window Vic's curvature equals ours.
+    if abs(span_ours - span_vic) > 0.10 * span_vic
+        fprintf(['  the spans differ by %.0f%% - the ratios above compare ' ...
+            'different lengths of beam\n  and are NOT a measure of ' ...
+            'agreement; see the matched-window table below\n'], ...
+            100 * abs(span_ours - span_vic) / span_vic);
+    end
 
     % raw side-by-side view (no fitting at all)
     figr = figure('Visible', 'off', 'Position', [40 40 1100 450]);
@@ -257,6 +286,31 @@ function out = compare_vic3d(dataDir)
     print(fig, fullfile(outDir, 'vic3d_compare.png'), '-dpng', '-r120');
     close(fig);
 
+    % ---- how much of the reference line we actually measured ----
+    % Catches a half-measured specimen; everything else is computed on the
+    % overlap only.
+    lo = max(min(yq), min(Vic{1}.Y));
+    hi = min(max(yq), max(Vic{1}.Y));
+    cover = max(0, hi - lo) / span_vic;
+    fprintf(['\nCoverage: our window is Y %.1f..%.1f mm of Vic''s %.1f..%.1f ' ...
+        '-> %.0f%% of the reference line\n'], min(yq), max(yq), ...
+        min(Vic{1}.Y), max(Vic{1}.Y), 100 * cover);
+
+    % ---- curvature on the window BOTH sides cover ----
+    % The comparable version of the raw table above: same beam, same length.
+    fprintf('\nCurvature on the matched window (detrended std, mm)\n');
+    fprintf('%-10s %10s %10s %8s\n', 'state', 'vic', 'ours', 'ratio');
+    curv_vic = nan(1, ns); curv_ours = nan(1, ns);
+    for k = 1:ns
+        inw = Vic{k}.Y >= lo & Vic{k}.Y <= hi;
+        ow  = yq >= lo & yq <= hi & isfinite(Wo(:, k));
+        if nnz(inw) < 5 || nnz(ow) < 5, continue; end
+        curv_vic(k)  = detrended_std(Vic{k}.Y(inw), Vic{k}.W(inw));
+        curv_ours(k) = detrended_std(yq(ow), best.sz * Wo(ow, k));
+        fprintf('%-10s %10.4f %10.4f %8.3f\n', names{k}, curv_vic(k), ...
+            curv_ours(k), curv_vic(k) / curv_ours(k));
+    end
+
     fprintf(['\nFor metric output rerun:\n' ...
         '  run_stereo_dataset(..., ''Pitch'', %.3f)\n'], best.s);
     fprintf('Overlay saved: %s\n', fullfile(outDir, 'vic3d_compare.png'));
@@ -288,12 +342,26 @@ function out = compare_vic3d(dataDir)
             end
         end
     end
-    passed = isfinite(sz_spk) && abs(sz_spk - 1) <= 0.05 && ...
+    % COVER_MIN is part of the verdict, not a warning (DIC 3D dataset: 47 %
+    % overlap passed all other checks, s_z 0.993, worst 0.6 um). A reference
+    % line that overhangs the field of view fails it too - crop the export.
+    % (Not to be confused with SCAN_SB's cover_min, which is how much of OUR
+    % profile has to land on the reference for a candidate fit to be
+    % admissible. This one is how much of the REFERENCE we measured at all.)
+    REF_COVER_MIN = 0.80;
+    agreed = isfinite(sz_spk) && abs(sz_spk - 1) <= 0.05 && ...
         max(rms_spk) <= 0.005;
+    passed = agreed && cover >= REF_COVER_MIN;
     fprintf(['\nSPECKLE-ZONE VERDICT (rows Vic actually measures, %d rows): ' ...
-        's_z = %.3f | worst rms %.4f mm -> %s\n'], ...
-        n_spk, sz_spk, max(rms_spk), tern(passed, 'PASS', 'FAIL'));
-    if ~passed && isfinite(sz_spk)
+        's_z = %.3f | worst rms %.4f mm | coverage %.0f%% -> %s\n'], ...
+        n_spk, sz_spk, max(rms_spk), 100 * cover, tern(passed, 'PASS', 'FAIL'));
+    if agreed && ~passed
+        fprintf(['  the numbers agree, but only over %.0f%% of the reference ' ...
+            'line (need %.0f%%):\n  the rest of the specimen was not ' ...
+            'measured, and nothing above can see that.\n'], ...
+            100 * cover, 100 * REF_COVER_MIN);
+    end
+    if ~agreed && isfinite(sz_spk)
         fprintf(['  (all-row s_z above mixes measured data with Vic''s ' ...
             'interpolated bridge over bare zones - diagnose per zone.)\n']);
     end
@@ -313,7 +381,20 @@ function out = compare_vic3d(dataDir)
     out.rms_speckle     = rms_spk;    % per-state rms, speckled rows, mm
     out.rms_max_speckle = max(rms_spk);
     out.n_speckle       = n_spk;      % speckled rows used
-    out.pass            = passed;     % binding speckle-zone verdict
+    out.cover           = cover;      % fraction of Vic's line our window spans
+    out.curv_vic        = curv_vic;   % detrended std on the matched window, mm
+    out.curv_ours       = curv_ours;
+    out.agreed          = agreed;     % the numbers agree, coverage aside
+    out.pass            = passed;     % binding verdict: agreement AND coverage
+end
+
+function s = detrended_std(y, w)
+% Curvature amplitude: the spread left after removing the best straight
+% line. Rigid translation and rotation of the whole specimen drop out, so
+% what remains is the bending itself.
+    y = y(:); w = w(:);
+    Q = [ones(numel(y), 1), y];
+    s = std(w - Q * (Q \ w));
 end
 
 function f = aux_file(dataDir, name)

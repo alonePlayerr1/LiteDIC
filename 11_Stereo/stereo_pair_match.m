@@ -96,6 +96,12 @@ function D = stereo_pair_match(img0, img1, P)
     D.U = R.U + dx;  D.V = R.V + dy;
     D.gx = R.gx;     D.gy = R.gy;
     D.Q = R.Q;       D.NIT = R.NIT;
+    D.nseeds = R.nseeds;   % how many fronts it took to fill this field;
+                           % a jump between states means the field broke up
+    D.nfail  = R.nfail;         % seed attempts that found nothing
+    D.seed_capped = R.seed_capped;  % true = the budget ran out, not the grid
+    D.unreached = R.unreached;          % speckle fraction never propagated to
+    D.unreached_max = R.unreached_max;  % ... its largest connected piece
     D.shift = [dx dy];
     D.peakq = peakq;
     D.shift_prior = prior;

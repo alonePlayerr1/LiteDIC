@@ -43,7 +43,17 @@ function R = dic_engine(ref, cur, P)
 %                     re-seed ever triggers and the result is bit-identical
 %                     to the single-seed engine. false = classical RG-DIC.
 %     P.max_seeds     cap on the number of successful seeds, incl. the
-%                     primary one (default 8).
+%                     primary one. Default: as many as the grid could
+%                     legitimately need, i.e. how many regions of the
+%                     minimum seedable size fit in the speckle area. A
+%                     seed is only ever attempted while that much of the
+%                     grid is still unreached, so this is only a runaway
+%                     guard (see the loop).
+%     P.max_seed_fails  seed attempts that may find nothing before the
+%                     engine stops looking (default 200). Separate from
+%                     max_seeds: a successful seed fills a region, a
+%                     failed one is only cost, so only failures are
+%                     bounded.
 %
 %   Output struct R:
 %     R.U, R.V   displacements, px (x right / y down), NaN where invalid
@@ -51,6 +61,10 @@ function R = dic_engine(ref, cur, P)
 %     R.NIT      IC-GN iteration count per point
 %     R.gx, R.gy grid coordinates (columns / rows of the image)
 %     R.nseeds   number of seeds actually used (1 = single front sufficed)
+%     R.nfail    seed attempts that found nothing
+%     R.seed_capped  true when max_seeds ran out rather than the grid: the
+%                    NaN left behind is a budget, not untrackable data, and
+%                    nothing else in the output distinguishes the two
 %
 %   Method: ZNSSD criterion (invariant to linear illumination changes);
 %   inverse-compositional Gauss-Newton (Baker & Matthews) with a
@@ -144,10 +158,43 @@ function R = dic_engine(ref, cur, P)
     tried = false(nY, nX);   % nodes rejected as re-seed candidates
     nbr = [1 0; -1 0; 0 1; 0 -1];
     multi = ~isfield(P, 'multi_seed') || isempty(P.multi_seed) || P.multi_seed;
-    maxseeds = 8;
-    if isfield(P, 'max_seeds') && ~isempty(P.max_seeds), maxseeds = P.max_seeds; end
     minregion = max(10, round(0.005 * nnz(speckle)));   % ignore tiny islands
-    nseeds = 0; attempts = 0;
+    % When to stop re-seeding. A fixed cap (was 8) does not work: number of
+    % fronts needed depends on grid sampling. DIC 3D dataset, a specimen speckled in two
+    % zones, cross-camera match at grid step 8 / subset 15:
+    %
+    %     seeds allowed      8      59     201    1030 (unbounded)
+    %     far zone         DEAD    full    full    full
+    %     near zone, valid nodes per row
+    %                       72      72      72      74
+    %     seconds          7.8    13.5    18.9    47.1
+    %
+    % At 8 the far zone (7800 nodes, a fifth of the grid) was never seeded
+    % from the third state on. At the default step 20 a few seeds are
+    % enough, so it did not show up there.
+    %
+    % Past ~60 seeds the tail is scattered fragments, but a "stop when
+    % yield drops" rule does not work here. Seeds are picked by TEXTURE, not by region size, so a run of small
+    % fragments can precede a large unreached zone: with a stop after five
+    % consecutive low-yield seeds, state 21-0547 of this same series halted
+    % at nine seeds having never reached the far zone, and the comparison
+    % fell straight back to 39 % of the specimen. A yield rule needs the
+    % seeds ordered by region size to be sound, which costs a connected
+    % component pass per seed.
+    %
+    % So: seed while a region worth seeding remains, up to as many regions
+    % of the minimum size as fit in the grid; cost is bounded by the failure
+    % budget below. R.seed_capped reports if the bound was reached.
+    maxseeds = max(8, ceil(nnz(speckle) / minregion));
+    if isfield(P, 'max_seeds') && ~isempty(P.max_seeds), maxseeds = P.max_seeds; end
+    % Failure budget is separate: a failed seed is a full integer search
+    % over +/-search_range for nothing. Tied to maxseeds, raising the seed
+    % budget would also raise the worst case.
+    MAXFAIL = 200;
+    if isfield(P, 'max_seed_fails') && ~isempty(P.max_seed_fails)
+        MAXFAIL = P.max_seed_fails;
+    end
+    nseeds = 0; nfail = 0;
     while true
         % ---- pick a seed node ----
         if nseeds > 0            % primary (si,sj) already chosen above
@@ -156,8 +203,6 @@ function R = dic_engine(ref, cur, P)
             if nnz(cand) < minregion, break; end
             [si, sj] = best_texture_node(ref, gy, gx, cand, half);
         end
-        attempts = attempts + 1;
-        if attempts > 5 * maxseeds, break; end   % bad-region bailout
         % ---- solve the seed ----
         [du0, dv0] = int_search(ref, cur, gy(si), gx(sj), half, P.search_range, s0);
         [p, q, nit, ok] = icgn_point(ref, Fi, gy(si), gx(sj), ...
@@ -168,6 +213,8 @@ function R = dic_engine(ref, cur, P)
         if ~ok || (nseeds > 0 && q < P.zncc_min)
             % bad seed spot (e.g. ON the barrier): block its 3x3 ring too
             tried(max(1,si-1):min(nY,si+1), max(1,sj-1):min(nX,sj+1)) = true;
+            nfail = nfail + 1;
+            if nfail > MAXFAIL, break; end       % bad-region bailout
             continue;
         end
         nseeds = nseeds + 1;
@@ -192,8 +239,51 @@ function R = dic_engine(ref, cur, P)
             end
         end
     end
+    % Speckle the propagation never got to. Distinct from "failed to
+    % correlate": these nodes were never attempted at all.
+    %
+    % Two numbers, the total alone is not enough. DIC 3D dataset, one
+    % cross-camera pair: total unreached 46.6 % with a zone lost, 13.8 % at
+    % the seed cap, 9.2 % unbounded - no threshold on it works. The largest
+    % connected missing region separates them: a lost zone is one big area,
+    % a healthy run leaves small scattered fragments.
+    nsp = max(1, nnz(speckle));
+    miss = speckle & ~done;
+    unreached = nnz(miss) / nsp;
+    unreached_max = largest_region(miss) / nsp;
     R = struct('U', U, 'V', V, 'Q', Q, 'NIT', NIT, 'gx', gx, 'gy', gy, ...
-        'nseeds', nseeds);
+        'nseeds', nseeds, 'nfail', nfail, 'seed_capped', nseeds >= maxseeds, ...
+        'unreached', unreached, 'unreached_max', unreached_max);
+end
+
+function n = largest_region(M)
+% Size of the largest 4-connected true region of a logical grid. An
+% explicit stack flood fill: BWLABEL and BWCONNCOMP are toolbox functions
+% and this engine is base MATLAB throughout.
+    n = 0;
+    if ~any(M(:)), return; end
+    [nY, nX] = size(M);
+    seen = false(nY, nX);
+    stack = zeros(numel(M), 2);
+    for a = 1:nY
+        for b = 1:nX
+            if ~M(a, b) || seen(a, b), continue; end
+            sp = 1; stack(1, :) = [a b]; seen(a, b) = true; sz = 0;
+            while sp > 0
+                i = stack(sp, 1); j = stack(sp, 2); sp = sp - 1;
+                sz = sz + 1;
+                for d = [1 0; -1 0; 0 1; 0 -1].'
+                    ii = i + d(1); jj = j + d(2);
+                    if ii < 1 || ii > nY || jj < 1 || jj > nX, continue; end
+                    if M(ii, jj) && ~seen(ii, jj)
+                        seen(ii, jj) = true;
+                        sp = sp + 1; stack(sp, :) = [ii jj];
+                    end
+                end
+            end
+            if sz > n, n = sz; end
+        end
+    end
 end
 
 function [si, sj] = best_texture_node(ref, gy, gx, cand, half)

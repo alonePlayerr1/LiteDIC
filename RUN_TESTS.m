@@ -1096,13 +1096,22 @@ function rows = test_stereo_dataset(dataDir)
 % the 2026-07-13 relayout with Dataset\ + Calibration\ subfolders (21r.csv
 % at the dataset root is copied next to the results if needed).
 % Frozen reference - our handheld Zhang calibration at the true 7 mm pitch,
-% vs the Vic-3D L0 line export (21r.csv):
-%   cam0 reprojection RMS 0.2170 px, cam1 0.2234 px, baseline 272.83 mm;
-%   SPECKLE-ZONE depth agreement s_z 0.98 with worst per-state rms ~2 um
+% vs the Vic-3D L0 line export (21r.csv). Re-frozen 2026-08-13 after the
+% DETECT_STRIP fix, ROI now covers both speckled zones (rows 1..3856,
+% was 1..1804):
+%   cam0 reprojection RMS 0.1546 px, cam1 0.1631 px, baseline 274.31 mm;
+%   SPECKLE-ZONE depth agreement s_z 0.9917 with worst per-state rms 0.6 um
+%   over 123 rows spanning 99% of the reference line
 %   (the all-row s_z is NOT gated: over the bare weld zone Vic's export is
 %   an interpolated bridge, not a measurement - see compare_vic3d header);
-%   multi-seed keeps >= 4000 valid nodes per deformed state (was ~2800
+%   multi-seed keeps >= 4300 valid nodes per deformed state (was ~2800
 %   when the single front died at the weld line).
+% The calibration residuals also moved (0.2170/0.2234 -> 0.1546/0.1631), and
+% not because of the ROI (not used in calibration): they were frozen before
+% the 2026-07-30 dot-centre change and not re-measured after it.
+% Coverage is checked separately, because every other number in
+% this test is computed on the overlap between the two lines and therefore
+% cannot see a specimen that was only half measured.
 % Intervals carry modest headroom around the measured values.
     addpath(proj('11_Stereo'), proj('6_DIC'));
     if ~isfolder(dataDir)
@@ -1140,11 +1149,14 @@ function rows = test_stereo_dataset(dataDir)
     nv = arrayfun(@(f) f.nvalid, Lr.S.frames(2:end));
 
     rows = {};
-    rows = chk(rows, 'cam0 reprojection RMS, px', cal.rms0, 0.200, 0.235, '%.4f');
-    rows = chk(rows, 'cam1 reprojection RMS, px', cal.rms1, 0.205, 0.242, '%.4f');
-    rows = chk(rows, 'stereo baseline, mm',       baseline_mm, 271.0, 274.5, '%.2f');
+    rows = chk(rows, 'cam0 reprojection RMS, px', cal.rms0, 0.140, 0.175, '%.4f');
+    rows = chk(rows, 'cam1 reprojection RMS, px', cal.rms1, 0.148, 0.182, '%.4f');
+    rows = chk(rows, 'stereo baseline, mm',       baseline_mm, 271.0, 276.0, '%.2f');
     rows = chk(rows, 'speckle-zone depth agreement s_z', out.s_z_speckle, 0.955, 1.010, '%.3f');
     rows = chk(rows, 'speckle-zone rms (worst state), mm', out.rms_max_speckle, 0, 0.004, '%.4f');
     rows = chk(rows, 'speckle rows used', out.n_speckle, 80, Inf, '%.0f');
+    % catches a specimen measured only in part (rows above only see the
+    % measured part)
+    rows = chk(rows, 'reference line covered', out.cover, 0.90, 1.001, '%.3f');
     rows = chk(rows, 'multi-seed: min valid nodes per state', min(nv), 4000, Inf, '%.0f');
 end
