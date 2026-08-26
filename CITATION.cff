@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use LiteDIC in your research, please cite it as below."
+title: "LiteDIC: a toolbox-free, CPU-only subpixel digital image correlation engine in MATLAB"
+abstract: >-
+  LiteDIC is a self-contained two-dimensional digital image correlation engine
+  written in base MATLAB, with no compiled components and no mandatory toolboxes.
+  It combines the ZNSSD correlation criterion, subpixel registration by the
+  inverse-compositional Gauss-Newton method with a first-order shape function,
+  spline intensity interpolation, reliability-guided propagation with multi-seed
+  restart, and strain computation by pointwise least squares with a strain window
+  defined in pixels.
+type: software
+authors:
+  - given-names: Iliia
+    family-names: Orlov
+    affiliation: "Moscow Aviation Institute (National Research University)"
+    email: iliiawuest@gmail.com
+repository-code: "https://github.com/alonePlayerr1/LiteDIC"
+license: MIT
+version: 1.0.0
+date-released: 2026-08-26
+keywords:
+  - digital image correlation
+  - IC-GN
+  - reliability-guided DIC
+  - MATLAB
+  - strain measurement
+  - experimental mechanics

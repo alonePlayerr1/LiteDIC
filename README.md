@@ -12,9 +12,11 @@ every analysis is one button.
 
 `DICe_examples/` holds local working copies of the two canonical real-world
 datasets (mono 2D large-motion series, stereo tension test) used to validate
-`6_DIC`/`11_Stereo` against real data. It is git-ignored - the canonical
-location is `C:\Users\gaing\DIC\`; restore the working copies from there if
-this folder is ever missing.
+`6_DIC`/`11_Stereo` against real data. They are large and third-party, so the
+folder is git-ignored and they are not redistributed here. Nothing in the
+default `RUN_TESTS` run depends on them - it uses only the images bundled in
+this repository. The opt-in `RUN_TESTS('stereo-data')` mode does need an
+external dataset, and prints how to point it at one.
 
 ## Contents
 
@@ -113,3 +115,10 @@ Checkpoints I keep for myself while developing:
 
 Everything is CPU-only by design: the target machine is an ordinary laptop
 with 16 GB RAM.
+
+## License and citation
+
+Released under the [MIT License](LICENSE): free to use, modify and
+redistribute, including commercially, as long as the copyright notice is
+kept. Citation metadata is in [`CITATION.cff`](CITATION.cff) - GitHub
+renders it as a "Cite this repository" button.
