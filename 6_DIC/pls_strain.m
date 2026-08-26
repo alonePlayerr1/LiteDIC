@@ -11,8 +11,14 @@ function [exx, eyy, exy] = pls_strain(U, V, step, win_px, use_green)
 %
 % Design choices that matter near the mask boundary:
 %   1) the window is specified in PIXELS (win_px) and converted to grid
-%      nodes -> refining the grid keeps the physical window size, and the
-%      strain field does not change with grid_step;
+%      nodes -> refining the grid keeps the physical window size, so the
+%      strain field is nearly independent of grid_step. Not
+%      exactly: h is rounded to a whole number of nodes, and the fit is a
+%      discrete sum over those nodes, so a coarser grid integrates the
+%      same physical window with fewer samples. Measured in RUN_TESTS
+%      (test_grid_refine): 2.7 % change in recovered strain amplitude
+%      between a 4 px and a 10 px grid at a fixed 40 px window on a
+%      120 px sinusoid, against 14.4 % if the window is fixed in NODES;
 %   2) strains are computed ONLY at nodes with a valid displacement -
 %      extrapolating the plane into the hole would fake large strain peaks
 %      at the edge;

@@ -57,6 +57,7 @@ G = run_case(G, 'DIC coarse (dic_coarse.m)',    @test_corr);
 G = run_case(G, 'DIC subpixel (dic_icgn.m)',    @test_dicpro);
 G = run_case(G, 'DIC batch kernel (dic_engine_batch.m)', @test_batch);
 G = run_case(G, 'DIC bias S-curve (bias_scurve.m)', @test_scurve);
+G = run_case(G, 'DIC PLS strain vs grid step (pls_strain.m)', @test_grid_refine);
 G = run_case(G, 'DIC large-shift seed (run_series_2d path)', @test_series2d_bigshift);
 G = run_case(G, 'DIC real-data inputs (bit depth, frame order, size guard)', @test_realdata_inputs);
 G = run_case(G, 'DIC engine AOI mask hook (dic_engine P.mask)', @test_engine_mask);
@@ -309,6 +310,99 @@ function rows = test_dicpro()
     e_p99 = prc(abs(eyy), 99);
     rows = chk(rows, 'max |eyy| (edge concentration)', e_max, 0.045, 0.070, '%.3f');
     rows = chk(rows, 'concentration ratio max/p99 |eyy|', e_max / e_p99, 1.9, 2.8, '%.2f');
+end
+
+function rows = test_grid_refine()
+% Grid-step behaviour of the PLS strain field. The strain window is given
+% in PIXELS, so refining the analysis grid is supposed to leave the
+% physical smoothing length - and hence the strain field - unchanged.
+% That holds only up to the rounding of the half-window to a whole number
+% of nodes (pls_strain: h = max(1, round(win_px/(2*step)))), and both
+% halves of the statement are checked here: exact invariance where the
+% rounding is exact, and a bounded departure where it is not.
+%
+% The field is analytic, so no correlation is involved and the check is
+% about pls_strain alone: v = A*sin(2*pi*y/lam) has
+% eyy = (2*pi*A/lam)*cos(2*pi*y/lam), and a plane fit over a window w
+% attenuates that amplitude by T(w) = 3*(sin q - q*cos q)/q^3 with
+% q = pi*w/lam - a function of w in PIXELS only.
+    addpath(proj('6_DIC'));
+    lam = 120; A = 0.5; L = 600;                 % px
+    amp0 = 2*pi*A/lam;                           % true eyy amplitude
+    rows = {};
+
+    % (a) the implementation reproduces the exact transfer of its own
+    %     estimator, for a fine grid, a coarse one, and a rounded window
+    [y1, e1] = sine_eyy(4,  40, lam, A, L);      % h = 5, span 40 px
+    [y2, e2] = sine_eyy(10, 40, lam, A, L);      % h = 2, span 40 px
+    [y3, e3] = sine_eyy(8,  40, lam, A, L);      % h = 3, span 48 px (rounded)
+    a1 = harm_amp(y1, e1, lam);
+    a2 = harm_amp(y2, e2, lam);
+    a3 = harm_amp(y3, e3, lam);
+    rows = chk(rows, 'step 4  (h=5): measured / exact transfer', ...
+        a1 / (amp0 * pls_transfer(4, 5, lam)),  0.995, 1.005, '%.4f');
+    rows = chk(rows, 'step 10 (h=2): measured / exact transfer', ...
+        a2 / (amp0 * pls_transfer(10, 2, lam)), 0.995, 1.005, '%.4f');
+    rows = chk(rows, 'step 8  (h=3): measured / exact transfer', ...
+        a3 / (amp0 * pls_transfer(8, 3, lam)),  0.995, 1.005, '%.4f');
+
+    % (b) invariance with the window fixed in PIXELS. Steps 4 and 10 give
+    %     the same 40 px span, yet the fields still differ by ~2.7 %: the
+    %     plane fit is a discrete sum over the nodes inside the window, so
+    %     a coarser grid changes the quadrature even at a fixed span. This
+    %     is where the invariance breaks, see pls_strain.m.
+    [dmax, ncom] = eyy_common_diff(y1, e1, y2, e2);
+    rows = chk(rows, 'window in px: common nodes (step 4 vs 10)', ...
+        ncom, 20, Inf, '%.0f');
+    rows = chk(rows, 'window in px: departure, step 4 vs 10', ...
+        abs(a1/a2 - 1), 0.02, 0.035, '%.4f');
+    rows = chk(rows, 'window in px: max |d eyy| / amplitude', ...
+        dmax / amp0, 0.015, 0.035, '%.4f');
+
+    % (c) the same comparison with the window fixed in NODES instead
+    %     (h = 2 on both grids, i.e. spans of 16 and 40 px): about five
+    %     times larger departure.
+    [~, e4] = sine_eyy(4, 16, lam, A, L);        % h = 2, span 16 px
+    a4 = harm_amp(y1, e4, lam);
+    rows = chk(rows, 'window in nodes: departure, step 4 vs 10', ...
+        abs(a4/a2 - 1), 0.12, 0.17, '%.4f');
+end
+
+function [gy, eyy] = sine_eyy(step, win_px, lam, A, L)
+% eyy field of v = A*sin(2*pi*y/lam) on a grid of the given step, keeping
+% only the interior band where every strain window is complete.
+    gy = (0:step:L)';
+    V  = A * sin(2*pi*gy/lam) * ones(1, numel(0:step:L));
+    [~, eyy] = pls_strain(zeros(size(V)), V, step, win_px, false);
+    eyy = eyy(:, ceil(size(eyy,2)/2));           % field varies in y only
+    keep = gy >= 80 & gy <= L - 80;
+    gy = gy(keep); eyy = eyy(keep);
+end
+
+function [dmax, n] = eyy_common_diff(y1, e1, y2, e2)
+% Largest |difference| between two strain fields at the nodes they share.
+    [~, i1, i2] = intersect(round(y1, 6), round(y2, 6));
+    d = e1(i1) - e2(i2);
+    d = d(isfinite(d));
+    n = numel(d);
+    if n == 0, dmax = Inf; else, dmax = max(abs(d)); end
+end
+
+function a = harm_amp(y, e, lam)
+% First-harmonic amplitude of e(y) at the known period - grid-independent,
+% unlike max(|e|), which depends on where the nodes fall on the cosine.
+    m = isfinite(e); yy = y(m); ee = e(m);
+    c = [cos(2*pi*yy/lam), sin(2*pi*yy/lam), ones(size(yy))] \ ee;
+    a = hypot(c(1), c(2));
+end
+
+function t = pls_transfer(step, h, lam)
+% Exact amplitude transfer of the PLS slope estimator on a grid: the fit
+% is the discrete sum slope = sum(x.*q)/sum(x.^2) over the 2h+1 nodes of
+% the window, so the transfer depends on the node spacing as well as on
+% the span 2*h*step. (The continuous limit is 3*(sin q - q cos q)/q^3.)
+    x = (-h:h)' * step;
+    t = sum(x .* sin(2*pi*x/lam)) / ((2*pi/lam) * sum(x.^2));
 end
 
 function rows = test_batch()

@@ -1,6 +1,6 @@
-PROJECT TEST REPORT - 2026-08-14 15:07
-MATLAB 25.2.0.2998904 (R2025b) | mode: base | time: 105 s
-TOTAL: 131 PASS, 0 FAIL, 0 ERRORS
+PROJECT TEST REPORT - 2026-08-26 11:14
+MATLAB 25.2.0.2998904 (R2025b) | mode: base | time: 98 s
+TOTAL: 138 PASS, 0 FAIL, 0 ERRORS
 
 --- CLT (plate_clt.m)
 [PASS] center deflection, mm: 18.96 (reference 18.85 .. 19.05)
@@ -57,6 +57,14 @@ TOTAL: 131 PASS, 0 FAIL, 0 ERRORS
 [PASS] S-curve: max |u bias|, px: 2.54e-04 (reference 0 .. 0.02)
 [PASS] S-curve: max |v cross-talk|, px: 6.02e-06 (reference 0 .. 0.005)
 [PASS] S-curve: points per shift: 625 (reference 300 .. Inf)
+--- DIC PLS strain vs grid step (pls_strain.m)
+[PASS] step 4  (h=5): measured / exact transfer: 1.0000 (reference 0.995 .. 1.005)
+[PASS] step 10 (h=2): measured / exact transfer: 1.0000 (reference 0.995 .. 1.005)
+[PASS] step 8  (h=3): measured / exact transfer: 1.0000 (reference 0.995 .. 1.005)
+[PASS] window in px: common nodes (step 4 vs 10): 23 (reference 20 .. Inf)
+[PASS] window in px: departure, step 4 vs 10: 0.0271 (reference 0.02 .. 0.035)
+[PASS] window in px: max |d eyy| / amplitude: 0.0231 (reference 0.015 .. 0.035)
+[PASS] window in nodes: departure, step 4 vs 10: 0.1440 (reference 0.12 .. 0.17)
 --- DIC large-shift seed (run_series_2d path)
 [PASS] seed_shift: |error u|, px: 0.00000 (reference 0 .. 0.05)
 [PASS] seed_shift: |error v|, px: 0.00000 (reference 0 .. 0.05)
