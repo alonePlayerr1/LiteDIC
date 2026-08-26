@@ -453,11 +453,24 @@ function names = list_series(dataDir, ext)
     else
         exts = {'jpg','jpeg','png','tif','tiff','bmp'};
     end
+    % ONE listing, with the extension matched case-insensitively by us.
+    % dir('*.tif') is case-SENSITIVE on Linux and macOS, so a folder of .TIF
+    % frames - what plenty of scientific cameras and Vic-3D exports write -
+    % read as EMPTY there ("No image files") while the same folder worked on
+    % Windows. Windows filesystems are case-insensitive, so this changes
+    % nothing there and fixes the other two platforms.
+    dd  = dir(dataDir);
+    dd  = dd(~[dd.isdir]);
+    nm0 = {dd.name};
+    nm0 = nm0(~startsWith(nm0, '.'));                     % drop dotfiles/junk
+    e0  = cell(size(nm0));
+    for q = 1:numel(nm0)
+        [~, ~, ee] = fileparts(nm0{q});
+        e0{q} = regexprep(ee, '^\.', '');
+    end
     best = {}; bestn = -1;
     for k = 1:numel(exts)
-        d  = dir(fullfile(dataDir, ['*.' exts{k}]));
-        nm = {d.name};
-        nm = nm(~startsWith(nm, '.'));                    % drop dotfiles/junk
+        nm = nm0(strcmpi(e0, exts{k}));
         if numel(nm) > bestn, bestn = numel(nm); best = nm; end
     end
     names = sort_frames(best);
