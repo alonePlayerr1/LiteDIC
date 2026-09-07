@@ -118,7 +118,13 @@ with 16 GB RAM.
 
 ## License and citation
 
-Released under the [MIT License](LICENSE): free to use, modify and
-redistribute, including commercially, as long as the copyright notice is
-kept. Citation metadata is in [`CITATION.cff`](CITATION.cff) - GitHub
-renders it as a "Cite this repository" button.
+Released under the [GNU Affero General Public License v3.0 or later](LICENSE):
+free to use, study, modify and redistribute, provided that derivative works -
+including software offered to users over a network - are released under the
+same licence with their complete source. See [`NOTICE`](NOTICE).
+
+A separate commercial licence, without the copyleft obligations, is available
+from the copyright holder: iliiawuest@gmail.com.
+
+Citation metadata is in [`CITATION.cff`](CITATION.cff) - GitHub renders it as
+a "Cite this repository" button.

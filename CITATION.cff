@@ -16,7 +16,7 @@ authors:
     affiliation: "Moscow Aviation Institute (National Research University)"
     email: iliiawuest@gmail.com
 repository-code: "https://github.com/alonePlayerr1/LiteDIC"
-license: MIT
+license: AGPL-3.0-or-later
 version: 1.0.0
 date-released: 2026-08-26
 keywords:

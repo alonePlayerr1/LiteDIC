@@ -1,0 +1,42 @@
+LiteDIC - a toolbox-free, CPU-only subpixel digital image correlation engine.
+
+Copyright (C) 2026 Iliia Orlov <iliiawuest@gmail.com>
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.  See the GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License along
+with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+The full licence text is in the file LICENSE.
+
+
+DUAL LICENSING
+--------------
+
+The copyright holder also offers LiteDIC under a separate commercial licence,
+which does not carry the copyleft obligations of the AGPL and permits use in
+closed-source and proprietary products. Enquiries: iliiawuest@gmail.com.
+
+
+CONTRIBUTIONS
+-------------
+
+Contributions from outside the copyright holder require a signed contributor
+licence agreement before they can be merged, so that dual licensing remains
+possible. Please open an issue before submitting a pull request.
+
+
+LICENCE HISTORY
+---------------
+
+Commit 8057fb2 added an MIT licence file to this repository. That grant never
+took effect: the repository has been private since creation and no copy of the
+software was distributed to anyone under those terms. The licence in force is
+the AGPL-3.0-or-later stated above.
