@@ -32,6 +32,20 @@ function run_stereo_dataset(dataDir, varargin)
 %               mixed in dataDir). When set, every pair in dataDir is a test
 %               pair and the calibration views are read from CalDir - the
 %               common layout, e.g. stereo_d_sample\cal_images_7mm.
+%   'TestOnly'  true when every pair in dataDir is a specimen state and no
+%               target views are present (default []: work it out by
+%               detection). Not inferred from a supplied calibration: the
+%               detection pass also keeps target views OUT of the test
+%               series. Setting it skips a detector pass over the whole
+%               series (most of the time on a long run).
+%   'Cal'       an ALREADY COMPUTED calibration: a path to a cal_stereo.mat,
+%               or the struct CALIBRATE_CAMERAS returns. No target views are
+%               needed or looked at and no calibration is solved. Mutually
+%               exclusive with 'VicCal' (error if both given).
+%   'VicCal'    path to a Vic-3D project.xml: use ITS calibration instead of
+%               ours. Validates the DIC + triangulation chain in isolation
+%               (same geometry as the reference export) and puts the output
+%               directly in mm. Mutually exclusive with 'Cal'.
 %   'Invert'    calibration target polarity (default []: auto-detect from the
 %               reference cal image). detect_dots wants dark dots on bright
 %               paper; a white-on-black target needs invert=true. Set
@@ -280,7 +294,9 @@ end
 
 %% -------- 4. stereo DIC on the test series --------
 ns = min(O.NStates, numel(test_stems) - 1);
-sel = unique(round(linspace(2, numel(test_stems), ns + 1)));
+% ns deformed states, evenly spaced, plus the reference (as documented for
+% 'NStates'). Note: linspace over ns+1 points gives one state too many.
+sel = unique(round(linspace(2, numel(test_stems), ns)));
 sel = [1, sel(sel > 1)];                     % reference + evenly spaced states
 f0 = cell(1, numel(sel)); f1 = cell(1, numel(sel));
 for q = 1:numel(sel)
@@ -486,8 +502,18 @@ end
 [nY, nX, ~] = size(S.X_ref_mm);
 P3   = reshape(S.X_ref_mm, [], 3);
 vfin = all(isfinite(P3), 2);
-c0   = mean(P3(vfin, :), 1);
-[~, ~, Vv] = svd(P3(vfin, :) - c0, 0);
+% Plane is fitted without the outer ring of the valid mask: subsets there
+% straddle the mask boundary and triangulate badly (pressurised plate: 615
+% nodes, 1.0 %, below -20 mm, worst -72 mm, surface flat to ~0.5 mm RMS).
+% One ring of erosion moves the 1st percentile from -20.2 mm to -0.89 mm.
+% Erosion width = half a subset in grid nodes, so the whole subset is inside
+% the mask (same idea as PLS_STRAIN).
+nEdge = max(1, ceil((P.subset_size / 2) / P.grid_step));
+vcore = reshape(erode_mask(reshape(vfin, nY, nX), nEdge), [], 1);
+fprintf('Reference plane: fitted on %d of %d nodes (%d-node edge band dropped)\n', ...
+    nnz(vcore), nnz(vfin), nEdge);
+c0   = mean(P3(vcore, :), 1);
+[~, ~, Vv] = svd(P3(vcore, :) - c0, 0);
 e1  = Vv(:, 1);            % along the beam (largest in-plane extent)
 e2  = Vv(:, 2);            % across the beam
 nrm = Vv(:, 3);            % surface normal
@@ -536,9 +562,17 @@ for k = 1:numel(sel)
         prof(end+1) = p; %#ok<AGROW>
     end
 end
-fprintf('\nReference surface: normal residual %.3f .. %.3f (%s), %.0f%% nodes valid\n', ...
-    min(Wref(:), [], 'omitnan'), max(Wref(:), [], 'omitnan'), units, ...
-    100 * nnz(vfin) / numel(vfin));
+% RMS and 1..99 % band instead of min/max: extremes are a few
+% triangulation outliers on the mask edge (pressurised plate: -72 .. +75 mm
+% on a surface flat to ~1 mm). Same nodes rlim() keeps off the colorbar.
+% Extremes still printed, labelled.
+res = Wref(vcore); res = res(isfinite(res));
+if isempty(res), res = 0; end
+fprintf(['\nReference surface (core, %d-node edge band dropped): ' ...
+    'normal residual RMS %.3f (%s), 1..99%% %.3f .. %.3f, ' ...
+    'extremes %.3f .. %.3f, %.0f%% of grid valid\n'], nEdge, ...
+    sqrt(mean(res.^2)), units, prctile_(res, 1), prctile_(res, 99), ...
+    min(res), max(res), 100 * nnz(vfin) / numel(vfin));
 
 %% -------- 5b. tracking storyboard (one PNG per state) --------
 % Frame-by-frame eyeball view of the temporal tracking on camera 0: green
@@ -586,10 +620,19 @@ h = imagesc(S.gx, S.gy, Wn_last); set(h, 'AlphaData', isfinite(Wn_last));
 axis image; colorbar; clim(rlim(Wn_last));
 title(sprintf('W = d3D\\cdotn, last state (%s)', units));
 subplot(1, 3, 3); hold on;
+hp = gobjects(numel(prof), 1);
 for q = 1:numel(prof)
-    plot(prof(q).s, prof(q).W, 'LineWidth', 1.2, 'DisplayName', prof(q).stem);
+    hp(q) = plot(prof(q).s, prof(q).W, 'LineWidth', 1.2, 'DisplayName', prof(q).stem);
 end
-grid on; legend('Location', 'best', 'Interpreter', 'none');
+grid on;
+% Legend: MATLAB caps it at 50 entries and with 122 states it covers the
+% axes. Past ten states label only first and last (curves are in order).
+if numel(prof) <= 10
+    legend('Location', 'best', 'Interpreter', 'none');
+else
+    legend(hp([1 end]), {prof(1).stem, prof(end).stem}, ...
+        'Location', 'best', 'Interpreter', 'none');
+end
 xlabel(sprintf('along-beam coordinate (%s)', units));
 ylabel(sprintf('W = d3D\\cdotn (%s)', units));
 title('Out-of-plane deflection profiles'); hold off;
@@ -688,6 +731,27 @@ function c = rlim(A)
     c = [m - 3*d, m + 3*d];
 end
 
+function m = erode_mask(m, k)
+% Shrink a logical mask by k nodes in 4-connectivity, toolbox-free. Border
+% nodes of the array count as outside, so a mask touching the array edge is
+% trimmed there too.
+    for it = 1:k
+        p = m;
+        m(1, :) = false; m(end, :) = false; m(:, 1) = false; m(:, end) = false;
+        m(2:end, :)   = m(2:end, :)   & p(1:end-1, :);
+        m(1:end-1, :) = m(1:end-1, :) & p(2:end, :);
+        m(:, 2:end)   = m(:, 2:end)   & p(:, 1:end-1);
+        m(:, 1:end-1) = m(:, 1:end-1) & p(:, 2:end);
+    end
+end
+
+function v = prctile_(x, q)
+% Nearest-rank percentile, toolbox-free (same helper as detect_dots.m).
+    x = sort(x(isfinite(x))); n = numel(x);
+    if n == 0, v = 0; return; end
+    v = x(min(n, max(1, round(q / 100 * n))));
+end
+
 function G = vic_geometry(xmlfile, I0, I1, P)
 % Build the stereo geometry from a Vic-3D project.xml calibration block.
 % The Euler-angle convention of <orientation> is not documented, so every
@@ -754,8 +818,19 @@ function G = vic_geometry(xmlfile, I0, I1, P)
         strjoin(arrayfun(@(c) sprintf('%s=%.2f', cand{c}{3}, meds(c)), ...
         1:numel(cand), 'UniformOutput', false), ' | '));
     if bmed > 5
-        warning('vic_geometry:conv', ...
-            'best convention still has epi med %.2f px - inspect results.', bmed);
+        % Error, not warning: with the right calibration the best convention
+        % gives a fraction of a pixel (0.08 and 0.23 px on the two reference
+        % rigs), 5 px means wrong geometry. As a warning the run failed
+        % minutes later with "seed point did not converge" instead.
+        error('vic_geometry:conv', ...
+            ['This calibration does not fit these frames: the best of the ' ...
+             'four conventions still leaves an epipolar residual of %.2f px ' ...
+             'on the reference pair, where a calibration that belongs to ' ...
+             'them gives a fraction of a pixel. Two things do this: a ' ...
+             'project.xml from a different rig or session, and a reference ' ...
+             'pair that is not a specimen frame at all - a calibration-target ' ...
+             'view left at the front of the series puts the target, not the ' ...
+             'specimen, in front of the cameras.'], bmed);
     end
 
     G.K0 = K{1}; G.d0 = dist{1};
