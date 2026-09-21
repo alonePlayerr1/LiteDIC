@@ -720,15 +720,27 @@ function [sc, wc] = profile_cut(Sgrid, Tgrid, Wgrid)
 end
 
 function c = rlim(A)
-% Robust color limits: median +/- 3 robust-sigma (MAD-based), toolbox-free.
-% Keeps a few triangulation-outlier nodes from crushing the colorbar.
+% Robust color limits: the TIGHTER of two rules in each direction - median
+% +/- 3 robust-sigma (MAD) and the 1st..99th percentiles of the data.
+%
+% MAD alone is right for a strain field (a narrow peak with a heavy tail of
+% ROI-edge nodes) and wrong for a smooth deflection bowl: there the values
+% spread almost uniformly over the range, the MAD is ~0.3 of it, and +/- 3
+% sigma goes nearly a full range past the data on both sides (sandwich
+% series last state: data [-10.9, 0.3] mm, colourbar [-17.4, +6.4] mm).
+% Percentiles keep the limits on the data, MAD still cuts a heavy tail.
+% Toolbox-free; degenerate input falls back sensibly.
     a = A(isfinite(A));
     if numel(a) < 5, c = [0 1]; return; end
     m = median(a);
-    d = 1.4826 * median(abs(a - m));
-    if d <= 0, d = std(a); end
+    d = 1.4826 * median(abs(a - m));       % robust sigma from MAD
+    if d <= 0, d = std(a); end             % all-equal-ish -> fall back to std
     if d <= 0, c = [m - 1, m + 1]; return; end
     c = [m - 3*d, m + 3*d];
+    s = sort(a);  n = numel(s);            % 1st / 99th percentile, toolbox-free
+    p = s(max(1, min(n, round([0.01 0.99] * n))));
+    c = [max(c(1), p(1)), min(c(2), p(2))];   % the tighter rule in each direction
+    if ~(c(2) > c(1)), c = [m - 3*d, m + 3*d]; end   % near-flat data: MAD alone
 end
 
 function m = erode_mask(m, k)

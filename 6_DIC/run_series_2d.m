@@ -429,11 +429,19 @@ function [R, sx, sy, cq, ok] = solve_step(prev, cur, roi, P, ds, sRr, sRc, prior
 end
 
 function c = rlim(A)
-% Robust color limits: median +/- 3 robust-sigma (MAD-based). This is
-% resistant to the HEAVY tail of ROI-edge / low-coverage strain nodes that
-% a plain percentile still lets through (Green-Lagrange squares gradients,
-% so edge noise is large), so the colorbar zooms onto the real field.
-% Toolbox-free. Falls back sensibly on degenerate input.
+% Robust color limits: the TIGHTER of two rules in each direction - median
+% +/- 3 robust-sigma (MAD) and the 1st..99th percentiles of the data.
+%
+% MAD alone is right for a strain field (a narrow peak with a heavy tail of
+% ROI-edge nodes) and wrong for a smooth deflection bowl: there the values
+% spread almost uniformly over the range, the MAD is ~0.3 of it, and +/- 3
+% sigma reaches nearly a full range PAST the data on both sides. On the
+% 122-state sandwich-panel series the last state's field lay in [-10.9, 0.3]
+% mm and was drawn on a [-17.4, +6.4] mm colourbar: half the colours spent on
+% values that do not exist, the bowl a pale wash next to Vic-3D's picture of
+% the same panel. The percentile pins the limits to where the data is; the
+% MAD still cuts a heavy tail a percentile alone would let through.
+% Toolbox-free; degenerate input falls back sensibly.
     a = A(isfinite(A));
     if numel(a) < 5, c = [0 1]; return; end
     m = median(a);
@@ -441,6 +449,10 @@ function c = rlim(A)
     if d <= 0, d = std(a); end             % all-equal-ish -> fall back to std
     if d <= 0, c = [m - 1, m + 1]; return; end
     c = [m - 3*d, m + 3*d];
+    s = sort(a);  n = numel(s);            % 1st / 99th percentile, toolbox-free
+    p = s(max(1, min(n, round([0.01 0.99] * n))));
+    c = [max(c(1), p(1)), min(c(2), p(2))];   % the tighter rule in each direction
+    if ~(c(2) > c(1)), c = [m - 3*d, m + 3*d]; end   % near-flat data: MAD alone
 end
 
 function names = list_series(dataDir, ext)
