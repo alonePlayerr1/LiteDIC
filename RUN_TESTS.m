@@ -62,6 +62,7 @@ G = run_case(G, 'DIC large-shift seed (run_series_2d path)', @test_series2d_bigs
 G = run_case(G, 'DIC real-data inputs (bit depth, frame order, size guard)', @test_realdata_inputs);
 G = run_case(G, 'DIC engine AOI mask hook (dic_engine P.mask)', @test_engine_mask);
 G = run_case(G, 'DIC multi-seed barrier crossing (dic_engine)', @test_multiseed);
+G = run_case(G, 'DIC per-point uncertainty (dic_engine R.SU/R.SV)', @test_sigma);
 G = run_case(G, 'DIC virtual extensometer (virtual_extensometer.m)', @test_extensometer);
 G = run_case(G, 'DIC mm/px scale (dic_scale.m)', @test_scale);
 G = run_case(G, 'DIC vs DICe gold (validate_dice.m)', @test_dice_gold);
@@ -695,6 +696,48 @@ function rows = test_engine_mask()
     rows = chk(rows, 'masked-out nodes are all NaN', double(allnan_out), 0.5, 1.5, '%.0f');
     rows = chk(rows, 'kept nodes match no-mask run, max|diff| px', dmax, 0, 0.005, '%.2e');
     rows = chk(rows, 'kept nodes stay valid', nnz(mm), 30, Inf, '%.0f');
+end
+
+function rows = test_sigma()
+% Per-point uncertainty (dic_engine R.SU / R.SV): the Gauss-Newton
+% covariance must predict the ACTUAL scatter of the displacement error.
+% Synthetic speckle, known subpixel shift, independent Gaussian noise of
+% 1 % of the intensity range in BOTH frames (an ordinary 8-bit camera):
+%   (a) predicted rms sigma vs measured std of the error, U and V;
+%   (b) coverage: |error| < 2 sigma at ~95 % of the nodes (Gaussian 95.4);
+%   (c) noise-free frames give a sigma far below the noisy one - the
+%       estimate follows the noise, not the subset size alone.
+% At 2-4 % noise the estimate is known to run 15-20 % low (gradient noise
+% inflates the Hessian); that regime is documented, not asserted here.
+    addpath(proj('6_DIC'));
+    rng(0);
+    img = conv2(rand(420), fspecial_gauss(2.0), 'same');
+    img = img(11:410, 11:410);
+    img = (img - min(img(:))) / (max(img(:)) - min(img(:)));
+    TU = 0.30; TV = -0.20;
+    Fi = griddedInterpolant({1:size(img,1), 1:size(img,2)}, img, 'spline', 'nearest');
+    [XX, YY] = meshgrid(1:size(img,2), 1:size(img,1));
+    shifted = reshape(Fi(YY(:) - TV, XX(:) - TU), size(img));
+    P = struct('subset_size', 41, 'grid_step', 10, 'search_range', 15, ...
+        'black_thr', 0.2, 'zncc_min', 0.5, 'max_iter', 30, 'conv_tol', 1e-3);
+    sn = 0.01;
+    R = dic_engine(img + sn * randn(size(img)), shifted + sn * randn(size(img)), P);
+    m = isfinite(R.U) & R.CONV;
+    eu = R.U(m) - TU; ev = R.V(m) - TV;
+    ru = sqrt(mean(R.SU(m).^2)) / std(eu);
+    rv = sqrt(mean(R.SV(m).^2)) / std(ev);
+    z = [eu ./ R.SU(m); ev ./ R.SV(m)];
+    cov2 = 100 * mean(abs(z) < 2);
+    R0 = dic_engine(img, shifted, P);
+    m0 = isfinite(R0.U) & R0.CONV;
+    q0 = sqrt(mean(R0.SU(m0).^2)) / sqrt(mean(R.SU(m).^2));
+
+    rows = {};
+    rows = chk(rows, 'nodes used', nnz(m), 900, Inf, '%.0f');
+    rows = chk(rows, 'predicted / measured sigma_u at 1 % noise', ru, 0.85, 1.15, '%.3f');
+    rows = chk(rows, 'predicted / measured sigma_v at 1 % noise', rv, 0.85, 1.15, '%.3f');
+    rows = chk(rows, 'coverage |err| < 2 sigma, %', cov2, 90, 99, '%.1f');
+    rows = chk(rows, 'noise-free sigma / noisy sigma', q0, 0, 0.1, '%.3f');
 end
 
 function rows = test_multiseed()

@@ -63,6 +63,14 @@ function R = dic_engine(ref, cur, P)
 %                was kept after exhausting P.max_iter (its Q still passed
 %                zncc_min, but the solve itself did not converge)
 %     R.nonconv  fraction of accepted points with R.CONV false
+%     R.SU, R.SV per-point standard uncertainty of U and V, px (1 sigma):
+%                the Gauss-Newton covariance at the solution,
+%                Cov(p) = s^2 * inv(H) with s^2 = |e|^2 / (N - 6) the
+%                residual variance of the subset (Wang, Pan et al. 2009;
+%                the same estimate DICe and VIC-3D report as "sigma").
+%                It is the RANDOM part of the error - image noise seen
+%                through the local texture - not the interpolation bias
+%                (that one is measured separately by bias_scurve.m).
 %     R.gx, R.gy grid coordinates (columns / rows of the image)
 %     R.nseeds   number of seeds actually used (1 = single front sufficed)
 %     R.nfail    seed attempts that found nothing
@@ -124,6 +132,7 @@ function R = dic_engine(ref, cur, P)
 
     U = nan(nY, nX); V = nan(nY, nX); Q = nan(nY, nX); NIT = nan(nY, nX);
     CONV = false(nY, nX);
+    SU = nan(nY, nX); SV = nan(nY, nX);   % 1-sigma uncertainty per point, px
     Pw = nan(nY, nX, 6);   % parameters [u ux uy v vx vy] per point
 
     % --- seed: the speckle node closest to the requested point (default:
@@ -210,7 +219,7 @@ function R = dic_engine(ref, cur, P)
         end
         % ---- solve the seed ----
         [du0, dv0] = int_search(ref, cur, gy(si), gx(sj), half, P.search_range, s0);
-        [p, q, nit, ok, cv] = icgn_point(ref, Fi, gy(si), gx(sj), ...
+        [p, q, nit, ok, cv, sg] = icgn_point(ref, Fi, gy(si), gx(sj), ...
             [du0 0 0 dv0 0 0], half, xi, eta, P);
         if nseeds == 0 && ~ok
             error('DIC: seed point did not converge - increase search_range.');
@@ -226,7 +235,7 @@ function R = dic_engine(ref, cur, P)
         done(si, sj) = true;
         Pw(si, sj, :) = p;
         U(si, sj) = p(1); V(si, sj) = p(4); Q(si, sj) = q; NIT(si, sj) = nit;
-        CONV(si, sj) = cv;
+        CONV(si, sj) = cv; SU(si, sj) = sg(1); SV(si, sj) = sg(2);
         [hq, hi, hj, hn] = heap_push(hq, hi, hj, hn, q, si, sj);
         % ---- grow the front (classical RG-DIC, unchanged) ----
         while hn > 0
@@ -236,12 +245,12 @@ function R = dic_engine(ref, cur, P)
                 ii = ci + nbr(n,1); jj = cj + nbr(n,2);
                 if ii < 1 || ii > nY || jj < 1 || jj > nX, continue; end
                 if done(ii, jj) || ~speckle(ii, jj), continue; end
-                [p, q, nit, ok, cv] = icgn_point(ref, Fi, gy(ii), gx(jj), transfer(p0, nbr(n,:), P.grid_step), half, xi, eta, P);
+                [p, q, nit, ok, cv, sg] = icgn_point(ref, Fi, gy(ii), gx(jj), transfer(p0, nbr(n,:), P.grid_step), half, xi, eta, P);
                 if ~ok || q < P.zncc_min, continue; end
                 done(ii, jj) = true;
                 Pw(ii, jj, :) = p;
                 U(ii, jj) = p(1); V(ii, jj) = p(4); Q(ii, jj) = q; NIT(ii, jj) = nit;
-                CONV(ii, jj) = cv;
+                CONV(ii, jj) = cv; SU(ii, jj) = sg(1); SV(ii, jj) = sg(2);
                 [hq, hi, hj, hn] = heap_push(hq, hi, hj, hn, q, ii, jj);
             end
         end
@@ -264,7 +273,7 @@ function R = dic_engine(ref, cur, P)
     % are returned next to NIT.
     nonconv = nnz(done & ~CONV) / max(1, nnz(done));
     R = struct('U', U, 'V', V, 'Q', Q, 'NIT', NIT, 'CONV', CONV, ...
-        'gx', gx, 'gy', gy, ...
+        'SU', SU, 'SV', SV, 'gx', gx, 'gy', gy, ...
         'nseeds', nseeds, 'nfail', nfail, 'seed_capped', nseeds >= maxseeds, ...
         'unreached', unreached, 'unreached_max', unreached_max, ...
         'nonconv', nonconv);
@@ -342,14 +351,19 @@ function [du, dv] = int_search(ref, cur, y0, x0, half, rng_px, s0)
     end
 end
 
-function [p, zncc, nit, ok, conv] = icgn_point(ref, Fi, y0, x0, p0, half, xi, eta, P)
+function [p, zncc, nit, ok, conv, sig] = icgn_point(ref, Fi, y0, x0, p0, half, xi, eta, P)
 % IC-GN at one point: ZNSSD criterion, first-order shape function
 % p = [u ux uy v vx vy]; inverse-compositional warp update
 % W <- W * inv(W(dp)) (Baker-Matthews), residual e = I - T.
 % ok   = a solution was produced (subset stayed in frame, Hessian sane);
 % conv = the update norm fell below P.conv_tol before P.max_iter ran out.
 % ok without conv is a point the caller may keep but must not call converged.
-    p = p0; zncc = -2; nit = 0; ok = false; conv = false;
+% sig  = [sigma_u sigma_v], px: standard uncertainty of the displacement
+%        from the Gauss-Newton covariance s^2 * inv(H), where s^2 is the
+%        residual variance of the last iteration (the residual of the
+%        solution, since the last update is below conv_tol). NaN when
+%        no solution was produced.
+    p = p0; zncc = -2; nit = 0; ok = false; conv = false; sig = [NaN NaN];
     f = ref(y0-half:y0+half, x0-half:x0+half);
     fz = f(:) - mean(f(:)); fn = norm(fz);
     if fn < eps, return; end
@@ -384,6 +398,20 @@ function [p, zncc, nit, ok, conv] = icgn_point(ref, Fi, y0, x0, p0, half, xi, et
     end
     p = [W(1,3), W(1,1)-1, W(1,2), W(2,3), W(2,1), W(2,2)-1];
     zncc = (fz' * gz) / (fn * gn);
+    % Per-point uncertainty: the residual of both frames' noise seen through
+    % the subset texture. 6 = parameters of the shape function.
+    s2 = (e' * e) / max(1, numel(e) - 6);
+    % Noise in the reference gradients inflates H (Pan 2009): the 5-point
+    % stencil passes 130/144 of the pixel-noise variance into each gradient,
+    % and both frames carry about half of s2 each. Remove that expected
+    % contribution so sigma is not underestimated on noisy images.
+    vn = 0.5 * s2 * 130 / 144;
+    B = [ones(numel(xi),1), xi(:), eta(:)];
+    D = vn * (B' * B);
+    Hc = H - blkdiag(D, D);
+    if rcond(Hc) < 1e-12 || any(diag(Hc) <= 0), Hc = H; end
+    Hi = Hc \ eye(6);
+    sig = sqrt(s2 * [Hi(1,1), Hi(4,4)]);
     ok = true;
 end
 

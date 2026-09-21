@@ -1,6 +1,6 @@
-PROJECT TEST REPORT - 2026-09-03 12:16
-MATLAB 25.2.0.2998904 (R2025b) | mode: base | time: 101 s
-TOTAL: 138 PASS, 0 FAIL, 0 ERRORS
+PROJECT TEST REPORT - 2026-09-21 15:26
+MATLAB 25.2.0.2998904 (R2025b) | mode: base | time: 100 s
+TOTAL: 143 PASS, 0 FAIL, 0 ERRORS
 
 --- CLT (plate_clt.m)
 [PASS] center deflection, mm: 18.96 (reference 18.85 .. 19.05)
@@ -91,6 +91,12 @@ TOTAL: 138 PASS, 0 FAIL, 0 ERRORS
 [PASS] multi-seed: full-field |err u|, px: 0.00250 (reference 0 .. 0.05)
 [PASS] multi-seed: full-field |err v|, px: 0.04039 (reference 0 .. 0.05)
 [PASS] barrier-free: multi-seed inert (bit-for-bit): 1 (reference 0.5 .. 1.5)
+--- DIC per-point uncertainty (dic_engine R.SU/R.SV)
+[PASS] nodes used: 1089 (reference 900 .. Inf)
+[PASS] predicted / measured sigma_u at 1 % noise: 0.969 (reference 0.85 .. 1.15)
+[PASS] predicted / measured sigma_v at 1 % noise: 0.970 (reference 0.85 .. 1.15)
+[PASS] coverage |err| < 2 sigma, %: 94.6 (reference 90 .. 99)
+[PASS] noise-free sigma / noisy sigma: 0.009 (reference 0 .. 0.1)
 --- DIC virtual extensometer (virtual_extensometer.m)
 [PASS] (a) rigid body: max|strain|: 0.00e+00 (reference 0 .. 1e-09)
 [PASS] (a) rigid body: max|opening| px: 0.00e+00 (reference 0 .. 1e-09)
