@@ -92,7 +92,15 @@ function field_overlay(img, X, Y, V, opts)
         hide = logical(opts.hide_outliers);
     end
 
-    if isfield(opts, 'clim') && numel(opts.clim) == 2
+    user_clim = isfield(opts, 'clim') && numel(opts.clim) == 2;
+    to_plane = isfield(opts, 'ref') && strcmpi(char(opts.ref), 'plane');
+    % A caller's clim refers to the values that get COLOURED. With ref =
+    % 'plane' those are plane-referenced, so the outlier rule below must not
+    % compare the raw values against it (a -2.1..-0.1 mm bowl against a
+    % -0.7..0.9 mm scale would hide almost every node): raw outliers are
+    % then judged by the robust rule and the caller's clim is applied after
+    % the plane is subtracted.
+    if user_clim && ~to_plane
         c = opts.clim;
     else
         c = rlim(V(m));
@@ -105,11 +113,11 @@ function field_overlay(img, X, Y, V, opts)
         m = m & ~out;
     end
     plane = [];
-    if isfield(opts, 'ref') && strcmpi(char(opts.ref), 'plane') && nnz(m) >= 3
+    if to_plane && nnz(m) >= 3
         A = [ones(nnz(m), 1), X(m), Y(m)];
         plane = A \ V(m);                       % least squares, drawn nodes only
         V = V - (plane(1) + plane(2) * X + plane(3) * Y);
-        if ~(isfield(opts, 'clim') && numel(opts.clim) == 2), c = rlim(V(m)); end
+        if user_clim, c = opts.clim; else, c = rlim(V(m)); end
     end
 
     sm = 1;
