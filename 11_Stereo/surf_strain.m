@@ -68,6 +68,20 @@ function E = surf_strain(Xref, Xdef, opts)
                 continue;
             end
             n = Vv(:, 3);                            % local plane normal
+            % The sign of a singular vector is arbitrary (LAPACK picks it),
+            % and e2 = n x e1 below flips with n, so exy would flip sign
+            % from node to node. Fix: n_z > 0 (cameras look along +Z), or
+            % the larger of |n_x|,
+            % |n_y| for a surface seen edge-on. Then e1 ~ +X and e2 ~ +Y,
+            % the same axes and shear sign as 2D DIC.
+            if abs(n(3)) > 1e-6
+                key = n(3);
+            elseif abs(n(1)) >= abs(n(2))
+                key = n(1);
+            else
+                key = n(2);
+            end
+            if key < 0, n = -n; end
 
             e1 = [1; 0; 0] - n(1) * n;               % global X onto plane
             if norm(e1) < 1e-6

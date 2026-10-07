@@ -409,7 +409,12 @@ function [p, zncc, nit, ok, conv, sig] = icgn_point(ref, Fi, y0, x0, p0, half, x
     B = [ones(numel(xi),1), xi(:), eta(:)];
     D = vn * (B' * B);
     Hc = H - blkdiag(D, D);
-    if rcond(Hc) < 1e-12 || any(diag(Hc) <= 0), Hc = H; end
+    % The correction must leave Hc positive definite. rcond and a positive
+    % diagonal do not guarantee that: with an indefinite Hc, Hc \ eye(6)
+    % goes to LU, Hi(1,1) < 0 and sig becomes COMPLEX (seen on points with
+    % ZNCC ~0.85).
+    [~, notpd] = chol(Hc);
+    if notpd || rcond(Hc) < 1e-12 || any(diag(Hc) <= 0), Hc = H; end
     Hi = Hc \ eye(6);
     sig = sqrt(s2 * [Hi(1,1), Hi(4,4)]);
     ok = true;
