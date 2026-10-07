@@ -1,5 +1,5 @@
-PROJECT TEST REPORT - 2026-10-07 13:28
-MATLAB 25.2.0.2998904 (R2025b) | mode: base | time: 166 s
+PROJECT TEST REPORT - 2026-10-07 19:42
+MATLAB 25.2.0.2998904 (R2025b) | mode: base | time: 103 s
 TOTAL: 143 PASS, 0 FAIL, 0 ERRORS
 
 --- CLT (plate_clt.m)
@@ -137,7 +137,7 @@ TOTAL: 143 PASS, 0 FAIL, 0 ERRORS
 --- Stereo extrinsics+triangulation (11_Stereo)
 [PASS] common stereo views: 9 (reference 8 .. 9)
 [PASS] rel rotation cam0->cam1, deg: 18.719 (reference 18.3 .. 19.1)
-[PASS] baseline consistency CV, %: 0.000 (reference 0 .. 1.5)
+[PASS] baseline consistency CV, %: 0.469 (reference 0 .. 1.5)
 [PASS] triangulation planarity RMS, pitch: 0.0022 (reference 0 .. 0.02)
 [PASS] reconstructed pitch, units: 0.9999 (reference 0.99 .. 1.01)
 [PASS] reconstructed pitch CV, %: 0.146 (reference 0 .. 1)

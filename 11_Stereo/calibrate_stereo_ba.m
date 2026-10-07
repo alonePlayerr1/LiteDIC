@@ -404,9 +404,25 @@ function R = vec2rot(r)
 end
 
 function r = rot2vec(R)
-    th = acos(max(-1, min(1, (trace(R) - 1) / 2)));
+% Rotation vector of a rotation matrix, accurate at every angle. The angle
+% comes from atan2(|w|, c) (acos loses digits near 0 and pi). Below 90 deg
+% the axis is the skew part w = sin(th)*k; above it w shrinks to nothing as
+% th -> pi (a board seen nearly upside down is th = pi - 1e-4) and dividing
+% by sin(th) amplifies rounding, so the axis comes from the symmetric part
+% (R + R')/2 - c*I = (1 - c)*k*k', with the sign taken from w.
+    w = [R(3,2)-R(2,3); R(1,3)-R(3,1); R(2,1)-R(1,2)] / 2;
+    c = (trace(R) - 1) / 2;
+    th = atan2(norm(w), c);
     if th < 1e-12, r = [0;0;0]; return; end
-    r = th / (2*sin(th)) * [R(3,2)-R(2,3); R(1,3)-R(3,1); R(2,1)-R(1,2)];
+    if c > 0
+        r = th / norm(w) * w;
+    else
+        S = (R + R.') / 2 - c * eye(3);
+        [~, i] = max(diag(S));
+        k = S(:, i) / norm(S(:, i));
+        if k.' * w < 0, k = -k; end
+        r = th * k;
+    end
 end
 
 function v = getf(s, f, d)

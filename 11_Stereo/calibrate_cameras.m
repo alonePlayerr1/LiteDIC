@@ -161,6 +161,11 @@ function R = calibrate_cameras(opts)
         % against one shared relative pose, and re-detecting the dots just
         % to get them back would cost as much as the calibration itself.
         R.cam(ci).views = V(C.kept);
+        % Zhang's own per-view poses. The joint adjustment below replaces
+        % rvec/tvec with poses that all share ONE relative pose, so they have
+        % no spread left to show; these are independent per-view estimates,
+        % and their spread is the rig-rigidity check of STEREO_EXTRINSICS.
+        R.cam(ci).zhang = struct('rvec', {C.rvec}, 'tvec', {C.tvec}, 'kept', kept_views);
 
         if verbose
             fprintf(['cam%d: RMS %.4f px | fx %.1f fy %.1f | u0 %.1f v0 %.1f ' ...
@@ -246,9 +251,25 @@ function M = rodr(v)
 end
 
 function v = rotv(M)
-    th = acos(max(-1, min(1, (trace(M)-1)/2)));
+% Rotation vector of a rotation matrix, accurate at every angle. The angle
+% comes from atan2(|w|, c) (acos loses digits near 0 and pi). Below 90 deg
+% the axis is the skew part w = sin(th)*k; above it w shrinks to nothing as
+% th -> pi (a board seen nearly upside down is th = pi - 1e-4) and dividing
+% by sin(th) amplifies rounding, so the axis comes from the symmetric part
+% (R + R')/2 - c*I = (1 - c)*k*k', with the sign taken from w.
+    w = [M(3,2)-M(2,3); M(1,3)-M(3,1); M(2,1)-M(1,2)] / 2;
+    c = (trace(M) - 1) / 2;
+    th = atan2(norm(w), c);
     if th < 1e-12, v = [0;0;0]; return; end
-    v = th/(2*sin(th)) * [M(3,2)-M(2,3); M(1,3)-M(3,1); M(2,1)-M(1,2)];
+    if c > 0
+        v = th / norm(w) * w;
+    else
+        S = (M + M.') / 2 - c * eye(3);
+        [~, i] = max(diag(S));
+        k = S(:, i) / norm(S(:, i));
+        if k.' * w < 0, k = -k; end
+        v = th * k;
+    end
 end
 
 function v = getf(s, f, d)
