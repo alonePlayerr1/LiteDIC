@@ -209,6 +209,9 @@ for k = 2:nF
         Xc = X0; Yc = Y0;
         cumU = zeros(size(X0)); cumV = zeros(size(X0));
         alive = true(size(X0));
+        % steady: the point was carried ONLY by converged step solutions (see
+        % the rigid-body fit below)
+        steady = true(size(X0));
         % per-frame accumulated-displacement history on the frame-1 grid, so
         % a virtual extensometer (virtual_extensometer.m) can be read as a
         % CURVE over the series, not just on the final frame. Snapshot-only:
@@ -233,6 +236,10 @@ for k = 2:nF
     end
     u = interp2(R.gx, R.gy, R.U, Xc, Yc, 'linear', NaN);
     v = interp2(R.gx, R.gy, R.V, Xc, Yc, 'linear', NaN);
+    % 0 exactly when every grid node that carries weight converged (a sum
+    % of zeros); any non-converged corner makes it positive
+    nc = interp2(R.gx, R.gy, double(~R.CONV), Xc, Yc, 'linear', NaN);
+    steady = steady & (nc == 0);
     died = alive & (~isfinite(u) | ~isfinite(v));
     cumU(died) = NaN;  cumV(died) = NaN;
     alive = alive & ~died;
@@ -246,7 +253,17 @@ for k = 2:nF
     hist_k(end+1) = k; %#ok<AGROW>
 
     % --- track the ROI + temporal prior for the next step ---
-    mu = mean(R.U(:), 'omitnan');  mv = mean(R.V(:), 'omitnan');
+    % The ROI follows the CONVERGED points only. A point kept after
+    % exhausting max_iter (R.CONV false) is not a measurement: a 1-ulp change
+    % of the input moves such points by up to hundreds of px (found porting
+    % to Rust, 2026-10-08), and through the mean it moved the tracked ROI -
+    % by 0.44 px on a real series step.
+    cv = R.CONV & isfinite(R.U) & isfinite(R.V);
+    if any(cv(:))
+        mu = mean(R.U(cv));  mv = mean(R.V(cv));
+    else
+        mu = mean(R.U(:), 'omitnan');  mv = mean(R.V(:), 'omitnan');
+    end
     trk_x = trk_x + mu;  trk_y = trk_y + mv;
     prior = [sx sy];
 
@@ -295,7 +312,10 @@ end
 % gradient (bending) signal. OFF by default (raw field unchanged); it also
 % removes any uniform strain, which one camera cannot separate from tilt.
 if O.RemoveRBM
-    g = alive & isfinite(cumU) & isfinite(cumV);
+    % Fit on the STEADY points only (carried by converged solutions at every
+    % step): the fit is global, so a few non-converged points - whose values
+    % are not reproducible - would shift it for every point of the field.
+    g = alive & steady & isfinite(cumU) & isfinite(cumV);
     if nnz(g) < 6
         warning('run_series_2d:rbm', ...
             'RemoveRBM: too few valid points (%d) to fit an affine - skipped.', nnz(g));
@@ -329,7 +349,7 @@ fprintf('Survived %d / %d grid points%s.\n', nnz(alive), numel(alive), ...
 
 %% -------- save --------
 save(fullfile(outDir, 'series_2d_results.mat'), 'X0', 'Y0', 'Xc', 'Yc', ...
-    'cumU', 'cumV', 'cumU_hist', 'cumV_hist', 'hist_k', 'alive', ...
+    'cumU', 'cumV', 'cumU_hist', 'cumV_hist', 'hist_k', 'alive', 'steady', ...
     'exx', 'eyy', 'exy', 'stats', 'P', 'O', 'names', 'aborted');
 
 % --- orientation-free scalar fields (no vertical-plate assumption) ---
