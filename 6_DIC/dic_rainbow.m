@@ -1,7 +1,10 @@
 function map = dic_rainbow(n)
-% DIC_RAINBOW  Rainbow colormap magenta-blue-cyan-green-yellow-red: the
-% Vic-3D scale, sampled from its colour bar - a uniform hue sweep 300..0 deg
-% at full saturation, five equal segments. Chosen so a LiteDIC map and a
+% DIC_RAINBOW  Rainbow colormap red-yellow-green-cyan-blue-magenta, minimum
+% to maximum: the Vic-3D scale, sampled from its colour bar - a uniform hue
+% sweep 0..300 deg at full saturation, five equal segments. Vic-3D puts red
+% at the bottom of its bar and violet at the top (checked on a published
+% Vic-3D screenshot, arXiv 2312.03230); the table below is stored violet
+% first and is flipped on return. Chosen so a LiteDIC map and a
 % Vic-3D map of the same specimen read alike side by side. (A perceptually
 % equalised variant - CIELAB arc length, Kovesi 2015 - is available from the
 % generator with w > 0; it compresses magenta-blue and no longer matches
@@ -268,6 +271,7 @@ function map = dic_rainbow(n)
         1.00000 0.01961 0.00000
         1.00000 0.00000 0.00000
     ];
+    T = flipud(T);                 % red = minimum, violet = maximum (Vic-3D)
     if n == size(T, 1), map = T; return; end
     x = linspace(0, 1, size(T, 1));  xi = linspace(0, 1, n);
     map = [interp1(x, T(:, 1), xi)', interp1(x, T(:, 2), xi)', interp1(x, T(:, 3), xi)'];

@@ -23,7 +23,12 @@ function E = surf_strain(Xref, Xdef, opts)
 %
 %   E = SURF_STRAIN(Xref, Xdef, opts) accepts:
 %     .win      half-window in grid nodes (default 2 -> 5x5 neighbours;
-%               larger = smoother, lower noise, less spatial resolution)
+%               larger = smoother, lower noise, less spatial resolution).
+%               The default is in NODES, so its size on the specimen
+%               follows the grid step: 5x5 nodes is 20 px at step 5 and
+%               60 px at step 15. For a window of about 100 px whatever the
+%               step (close to Vic-3D's strain filter) pass
+%               win = round((100/gridStep - 1)/2), e.g. 4 (9x9) at step 11.
 %     .min_pts  minimum finite neighbours for a solve (default 8)
 %
 %   Output struct E (all [nY x nX], NaN where not computable):

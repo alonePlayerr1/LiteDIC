@@ -29,8 +29,8 @@ function field_overlay(img, X, Y, V, opts)
 %                     continuous map the eye judges the gradient, and two
 %                     equal fields with different limits look different.
 %             .cmap   colormap name or N x 3 matrix (default 'dic_rainbow':
-%                     magenta-blue-cyan-green-yellow-red in Vic-3D's order,
-%                     resampled for even perceptual steps - see DIC_RAINBOW;
+%                     red-yellow-green-cyan-blue-magenta from minimum to
+%                     maximum, in Vic-3D's order - see DIC_RAINBOW;
 %                     plain jet/hsv show false bands in cyan and yellow)
 %             .alpha  opacity of the colour over the frame (default 0.62,
 %                     about what Vic-3D uses: the speckle stays visible
