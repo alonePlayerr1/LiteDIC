@@ -677,8 +677,19 @@ function [stems, nums, exts] = discover_pairs(folder)
         n = regexp(t{1}, '(\d+)$', 'tokens', 'once');
         if isempty(n), nums(end+1) = NaN; else, nums(end+1) = str2double(n{1}); end %#ok<AGROW>
     end
-    [~, order] = sort(nums);
+    % Series first, then the number. A folder holding several series
+    % (1-0000.., 11-0000..) used to be sorted by the number alone, which
+    % interleaved them: 1-0000, 11-0000, 1-0001, ... One series sorts exactly
+    % as before.
+    pre = regexprep(stems, '\d+$', '');
+    [upre, ~, ip] = unique(pre);
+    [~, order] = sortrows([ip(:), nums(:)]);
     stems = stems(order); nums = nums(order); exts = exts(order);
+    if numel(upre) > 1
+        warning('run_stereo_dataset:series', ['%s holds %d series (%s); they ' ...
+            'are taken one after another. Point the run at one series.'], ...
+            folder, numel(upre), strjoin(upre, ', '));
+    end
 end
 
 function [sc, wc] = profile_cut(Sgrid, Tgrid, Wgrid)
