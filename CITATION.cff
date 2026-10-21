@@ -13,7 +13,7 @@ type: software
 authors:
   - given-names: Iliia
     family-names: Orlov
-    affiliation: "Moscow Aviation Institute (National Research University)"
+    affiliation: "Independent researcher, Moscow, Russia"
     email: iliiawuest@gmail.com
 repository-code: "https://github.com/alonePlayerr1/LiteDIC"
 license: AGPL-3.0-or-later
