@@ -4,7 +4,6 @@ function RUN_TESTS(mode, dataDir)
 %
 % Usage from the project folder:
 %       RUN_TESTS                  % main set, ~1-2 min
-%       RUN_TESTS('full')          % + FE beam (requires the PDE Toolbox)
 %       RUN_TESTS('stereo-data')   % + welded-plate stereo vs Vic-3D
 %                                  %   (OPT-IN: needs the external dataset,
 %                                  %    takes minutes; base suite is
@@ -32,7 +31,6 @@ if nargin < 2 || isempty(dataDir)
         if isempty(dataDir), dataDir = cand{1}; end   % name a sensible path in the error
     end
 end
-do_full        = strcmpi(mode, 'full');
 do_stereo_data = strcmpi(mode, 'stereo-data');
 root = fileparts(mfilename('fullpath'));
 t_all = tic;
@@ -46,13 +44,6 @@ rehash;
 ensure_images(root);   % verify the DIC image series is present
 file_check(root);      % print sizes + first lines as MATLAB sees the files
 
-G = run_case(G, 'CLT (plate_clt.m)',            @test_clt);
-G = run_case(G, 'FSDT (plate_fsdt.m)',          @test_fsdt);
-G = run_case(G, 'Vibration (plate_vibration.m)', @test_wave);
-G = run_case(G, 'DDM cracking (matrix_cracking_ddm.m)', @test_crack);
-G = run_case(G, 'Shell (cyl_shell.m)',          @test_cyl);
-G = run_case(G, 'Rocket (rocket_loads.m)',      @test_rock);
-G = run_case(G, 'Sphere (sphere_demo.m)',       @test_sphere);
 G = run_case(G, 'DIC coarse (dic_coarse.m)',    @test_corr);
 G = run_case(G, 'DIC subpixel (dic_icgn.m)',    @test_dicpro);
 G = run_case(G, 'DIC batch kernel (dic_engine_batch.m)', @test_batch);
@@ -72,9 +63,6 @@ G = run_case(G, 'Stereo DIC vs DICe gold (11_Stereo)', @test_stereo_gold);
 G = run_case(G, 'Surface strain (surf_strain.m)', @test_surf_strain);
 G = run_case(G, 'GT dataset factory (gen_dataset.m)', @test_gt_gen);
 G = run_case(G, 'External validator (13_Validator)', @test_validator);
-if do_full
-    G = run_case(G, 'FE beam (beam_fem.m, PDE Toolbox)', @test_beam);
-end
 if do_stereo_data
     G = run_case(G, 'Stereo dataset vs Vic-3D (frozen, opt-in)', ...
         @() test_stereo_dataset(dataDir));
@@ -161,12 +149,6 @@ function file_check(root)
 % IT from disk. If a file shows 0 bytes or garbage here, the file on disk
 % is broken even if other tools claim it is fine.
     files = { ...
-        fullfile('1_Plates_CLT_FSDT','plate_clt.m'), ...
-        fullfile('1_Plates_CLT_FSDT','plate_fsdt.m'), ...
-        fullfile('2_Damage_crack','matrix_cracking_ddm.m'), ...
-        fullfile('3_Cyl_shell','cyl_shell.m'), ...
-        fullfile('4_Plate_vibration','plate_vibration.m'), ...
-        fullfile('5_Rocket_strength','rocket_loads.m'), ...
         fullfile('6_DIC','dic_coarse.m'), ...
         fullfile('6_DIC','dic_icgn.m'), ...
         fullfile('6_DIC','dic_engine.m'), ...
@@ -176,11 +158,9 @@ function file_check(root)
         fullfile('6_DIC','dic_scale.m'), ...
         fullfile('6_DIC','scale_from_length.m'), ...
         fullfile('6_DIC','plate_ref.tiff'), ...
-        fullfile('7_Sphere_geometry','sphere_demo.m'), ...
         fullfile('9_Validation_DICe','validate_dice.m'), ...
         fullfile('9_Validation_DICe','dice_reference','DICe_solution_0.txt'), ...
         fullfile('10_Challenge2','challenge2_benchmark.m'), ...
-        fullfile('8_FEM_beam','beam_fem.m'), ...
         'START.m'};
     fprintf('--- File check (as MATLAB sees the disk) ---\n');
     for k = 1:numel(files)
@@ -210,68 +190,6 @@ function v = prc(x, q)
 end
 
 % ===================== tests =====================
-
-function rows = test_clt()
-    evalc('run(proj(''1_Plates_CLT_FSDT'', ''plate_clt.m''))');
-    rows = {};
-    rows = chk(rows, 'center deflection, mm', w*1000, 18.85, 19.05, '%.2f');
-    rows = chk(rows, 'moment M_x, N*m/m', M(1), -470, -455, '%.1f');
-    rows = chk(rows, 'symmetric layup: max|B|, N', max(abs(B(:))), 0, 1e-6, '%.1e');
-end
-
-function rows = test_fsdt()
-    evalc('run(proj(''1_Plates_CLT_FSDT'', ''plate_fsdt.m''))');
-    rows = {};
-    rows = chk(rows, 'center deflection, mm', w*1000, 18.85, 19.10, '%.2f');
-    rows = chk(rows, 'moment M_x, N*m/m', M(1), -470, -455, '%.1f');
-    rows = chk(rows, 'shear stiffness A_s(1,1), N/m', A_s(1,1), 2.4e7, 2.6e7, '%.3g');
-    rows = chk(rows, 'shear stiffness A_s(2,2), N/m', A_s(2,2), 2.4e7, 2.6e7, '%.3g');
-end
-
-function rows = test_wave()
-    evalc('run(proj(''4_Plate_vibration'', ''plate_vibration.m''))');
-    rows = {};
-    rows = chk(rows, 'frequency f1, Hz', f(1), 5.60, 5.80, '%.3f');
-    rows = chk(rows, 'beam check value, Hz', f1_beam, 5.55, 5.67, '%.3f');
-    rows = chk(rows, 'f1 above beam value (plate is stiffer)', double(f(1) > f1_beam), 0.5, 1.5, '%.0f');
-    rows = chk(rows, 'frequency f5, Hz', f(5), 200, 212, '%.1f');
-end
-
-function rows = test_crack()
-    evalc('run(proj(''2_Damage_crack'', ''matrix_cracking_ddm.m''))');
-    rows = {};
-    R = 1 - D2_history;
-    rows = chk(rows, 'first cracks, % strain', ...
-        strain_steps(find(lambda_history > 1e-3, 1))*100, 0.20, 0.32, '%.2f');
-    dR = gradient(R, strain_steps); [~, i_inf] = min(dR);
-    rows = chk(rows, 'sigmoid inflection, % strain', strain_steps(i_inf)*100, 0.40, 0.52, '%.2f');
-    rows = chk(rows, 'shoulder: E2eff/E2 at 0.30 %', interp1(strain_steps, R, 0.0030), 0.95, 1.001, '%.3f');
-    rows = chk(rows, 'lambda at the end of the range', lambda_history(end), 0.88, 1.00, '%.3f');
-    rows = chk(rows, 'residual stiffness E2eff/E2', R(end), 0.33, 0.37, '%.3f');
-    rows = chk(rows, 'lambda monotonicity', double(all(diff(lambda_history) >= -1e-12)), 0.5, 1.5, '%.0f');
-end
-
-function rows = test_cyl()
-    evalc('run(proj(''3_Cyl_shell'', ''cyl_shell.m''))');
-    rows = {};
-    rows = chk(rows, 'membrane sigma_theta, MPa', sigma_theta_mem/1e6, 99.5, 100.5, '%.1f');
-    rows = chk(rows, 'membrane sigma_x, MPa', sigma_x_mem/1e6, 49.5, 50.5, '%.1f');
-    rows = chk(rows, 'membrane deflection w, mm', w_mem*1e3, 0.41, 0.44, '%.3f');
-end
-
-function rows = test_rock()
-    evalc('run(proj(''5_Rocket_strength'', ''rocket_loads.m''))');
-    rows = {};
-    rows = chk(rows, 'tank cylinder: sigma_theta, Pa', sigma_theta_fuel, 0.99e7, 1.01e7, '%.3g');
-    rows = chk(rows, 'tank cylinder: sigma_x, Pa', sigma_x_fuel, 4.9e6, 5.1e6, '%.3g');
-    rows = chk(rows, 'tank bottom: sigma, Pa', sigma_bottom_fuel, 2.4e6, 2.6e6, '%.3g');
-    rows = chk(rows, 'bottom type = flat', double(strcmp(bottom_type_fuel, 'flat')), 0.5, 1.5, '%.0f');
-end
-
-function rows = test_sphere()
-    evalc('run(proj(''7_Sphere_geometry'', ''sphere_demo.m''))');
-    rows = {'ran without errors', 1, ''};
-end
 
 function rows = test_corr()
 % dic_coarse runs on plate_ref -> last frame of the series.
@@ -1061,11 +979,6 @@ function r = epi_rms_local(uv0, uv1, F)
     num = sum([uv1, ones(n,1)].' .* l, 1);
     den = hypot(l(1,:), l(2,:));
     r = sqrt(mean((num ./ den).^2));
-end
-
-function rows = test_beam()
-    evalc('run(proj(''8_FEM_beam'', ''beam_fem.m''))');
-    rows = {'ran without errors (check ~420 Hz on the tip plot)', 1, ''};
 end
 
 function rows = test_surf_strain()
