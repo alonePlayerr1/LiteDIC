@@ -1,10 +1,12 @@
-# Regression suite on every push and pull request (MATLAB is free for public repositories).
+# Regression suite on every push and pull request. MATLAB on GitHub runners is free only for
+# public repositories, so the job is skipped while the repository is private.
 name: tests
 on: [push, pull_request]
 permissions:
   contents: read
 jobs:
   run-tests:
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
