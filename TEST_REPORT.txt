@@ -1,39 +1,7 @@
-PROJECT TEST REPORT - 2026-10-08 17:21
-MATLAB 25.2.0.2998904 (R2025b) | mode: base | time: 110 s
-TOTAL: 143 PASS, 0 FAIL, 0 ERRORS
+PROJECT TEST REPORT - 2026-10-21 06:55
+MATLAB 25.2.0.2998904 (R2025b) | mode: base | time: 119 s
+TOTAL: 118 PASS, 0 FAIL, 0 ERRORS
 
---- CLT (plate_clt.m)
-[PASS] center deflection, mm: 18.96 (reference 18.85 .. 19.05)
-[PASS] moment M_x, N*m/m: -463.0 (reference -470 .. -455)
-[PASS] symmetric layup: max|B|, N: 0.0e+00 (reference 0 .. 1e-06)
---- FSDT (plate_fsdt.m)
-[PASS] center deflection, mm: 18.97 (reference 18.85 .. 19.1)
-[PASS] moment M_x, N*m/m: -462.8 (reference -470 .. -455)
-[PASS] shear stiffness A_s(1,1), N/m: 2.5e+07 (reference 2.4e+07 .. 2.6e+07)
-[PASS] shear stiffness A_s(2,2), N/m: 2.5e+07 (reference 2.4e+07 .. 2.6e+07)
---- Vibration (plate_vibration.m)
-[PASS] frequency f1, Hz: 5.694 (reference 5.6 .. 5.8)
-[PASS] beam check value, Hz: 5.608 (reference 5.55 .. 5.67)
-[PASS] f1 above beam value (plate is stiffer): 1 (reference 0.5 .. 1.5)
-[PASS] frequency f5, Hz: 205.7 (reference 200 .. 212)
---- DDM cracking (matrix_cracking_ddm.m)
-[PASS] first cracks, % strain: 0.26 (reference 0.2 .. 0.32)
-[PASS] sigmoid inflection, % strain: 0.46 (reference 0.4 .. 0.52)
-[PASS] shoulder: E2eff/E2 at 0.30 %: 0.991 (reference 0.95 .. 1.001)
-[PASS] lambda at the end of the range: 0.943 (reference 0.88 .. 1)
-[PASS] residual stiffness E2eff/E2: 0.349 (reference 0.33 .. 0.37)
-[PASS] lambda monotonicity: 1 (reference 0.5 .. 1.5)
---- Shell (cyl_shell.m)
-[PASS] membrane sigma_theta, MPa: 100.0 (reference 99.5 .. 100.5)
-[PASS] membrane sigma_x, MPa: 50.0 (reference 49.5 .. 50.5)
-[PASS] membrane deflection w, mm: 0.425 (reference 0.41 .. 0.44)
---- Rocket (rocket_loads.m)
-[PASS] tank cylinder: sigma_theta, Pa: 1e+07 (reference 9.9e+06 .. 1.01e+07)
-[PASS] tank cylinder: sigma_x, Pa: 5e+06 (reference 4.9e+06 .. 5.1e+06)
-[PASS] tank bottom: sigma, Pa: 2.5e+06 (reference 2.4e+06 .. 2.6e+06)
-[PASS] bottom type = flat: 1 (reference 0.5 .. 1.5)
---- Sphere (sphere_demo.m)
-[PASS] ran without errors
 --- DIC coarse (dic_coarse.m)
 [PASS] mean dy (downward load), px: -8.51 (reference -9 .. -8)
 [PASS] mean |dx| << |dy|, px: 0.68 (reference 0.4 .. 1)

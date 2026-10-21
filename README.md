@@ -1,11 +1,11 @@
-# Engineering Analysis Lab - MATLAB
+# LiteDIC - MATLAB
 
-A collection of structural mechanics and experimental mechanics analyses I am
-building up step by step. The long-term goal is a validated 2D (and later
-stereo) digital image correlation system running on a plain CPU, plus the
-classical-mechanics models I compare it against. Everything runs on base
-MATLAB - no toolboxes required (except the FE beam demo, which needs the PDE
-Toolbox).
+LiteDIC is a two-dimensional and stereo digital image correlation (DIC) engine
+in base MATLAB. It runs on a plain CPU with no toolboxes. This repository holds
+the engine, its validation against DICe and the DIC Challenge 2.0, and the
+regression suite. The structural mechanics examples that used to live here
+(laminated plates, shells, vibration, rocket loads) are now a separate
+repository, `mechanics-lab`.
 
 Quick start: open `START.m` in MATLAB and press Run. A launcher menu opens;
 every analysis is one button.
@@ -22,17 +22,9 @@ external dataset, and prints how to point it at one.
 
 | Folder | Script | What it does |
 |---|---|---|
-| `1_Plates_CLT_FSDT` | `plate_clt.m` | [0/90/0] laminate bending, classical lamination theory, Navier series |
-| `1_Plates_CLT_FSDT` | `plate_fsdt.m` | Same plate with transverse shear (Mindlin/FSDT), coupled 3x3 Navier system |
-| `2_Damage_crack` | `matrix_cracking_ddm.m` | Matrix crack density evolution (discrete damage mechanics), saturating stiffness sigmoid with Weibull toughness statistics |
-| `3_Cyl_shell` | `cyl_shell.m` | Pressurized sandwich cylinder with closed ends, membrane + edge effect |
-| `4_Plate_vibration` | `plate_vibration.m` | Cantilever plate natural frequencies, Rayleigh-Ritz |
-| `5_Rocket_strength` | `rocket_loads.m` | Rocket body sectional loads (N, Q, M) and tank stresses |
 | `6_DIC` | `dic_coarse.m` | Fast integer-pixel DIC with parabolic subpixel peak fit |
 | `6_DIC` | `dic_icgn.m` | Subpixel DIC engine: ZNSSD + inverse-compositional Gauss-Newton + reliability-guided propagation + pointwise-least-squares strains |
 | `6_DIC` | `bias_scurve.m` | Interpolation-bias S-curve self-test: Fourier-phase-shift subpixel sweep (Schreier et al. 2000), bias and apparent strain per pattern/subset |
-| `7_Sphere_geometry` | `sphere_demo.m` | Geodesic sphere triangulation from a subdivided icosahedron |
-| `8_FEM_beam` | `beam_fem.m` | Transient FE vibration of a cantilever beam (PDE Toolbox) |
 | `9_Validation_DICe` | `validate_dice.m` | One-button validation of the subpixel engine against DICe's official gold solution |
 | `10_Challenge2` | `challenge2_benchmark.m` | Noise floor, spatial resolution and MEI on the DIC Challenge 2.0 Star images (images downloaded separately, see its README) |
 | `12_Datasets` | `gen_dataset.m` | Factory of synthetic speckle pairs with EXACT dense ground truth (analytic pattern, interpolation-free warp) for training and testing DIC / DL-DIC |

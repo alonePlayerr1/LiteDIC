@@ -37,6 +37,6 @@ LICENCE HISTORY
 ---------------
 
 Commit 8057fb2 added an MIT licence file to this repository. That grant never
-took effect: the repository has been private since creation and no copy of the
-software was distributed to anyone under those terms. The licence in force is
-the AGPL-3.0-or-later stated above.
+took effect: until the licence was changed to the AGPL the repository was private
+and no copy of the software was distributed to anyone under those terms. The
+licence in force is the AGPL-3.0-or-later stated above.
