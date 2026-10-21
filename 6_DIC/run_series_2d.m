@@ -255,8 +255,8 @@ for k = 2:nF
     % --- track the ROI + temporal prior for the next step ---
     % The ROI follows the CONVERGED points only. A point kept after
     % exhausting max_iter (R.CONV false) is not a measurement: a 1-ulp change
-    % of the input moves such points by up to hundreds of px (found porting
-    % to Rust, 2026-10-08), and through the mean it moved the tracked ROI -
+    % of the input moves such points by up to hundreds of px (found in a
+    % bit-reproducibility check, 2026-10-08), and through the mean it moved the tracked ROI -
     % by 0.44 px on a real series step.
     cv = R.CONV & isfinite(R.U) & isfinite(R.V);
     if any(cv(:))

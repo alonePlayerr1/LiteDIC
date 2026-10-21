@@ -65,7 +65,7 @@ byte-identical to DICe's official `full_field` example, and against its
 published gold solution the displacement agreement is |bias| < 0.01 px,
 RMS < 0.01 px (see `9_Validation_DICe`).
 
-Checkpoints I keep for myself while developing:
+What the regression suite holds the engine to:
 
 - self-test: shift recovery error < 0.02 px, spurious strains < 5e-4;
 - loading series: displacement grows monotonically frame to frame,
@@ -76,7 +76,6 @@ Checkpoints I keep for myself while developing:
 
 ## Roadmap
 
-- [x] Classical models (plates, shell, vibration, damage, FE beam)
 - [x] Integer-pixel DIC
 - [x] Subpixel DIC engine (IC-GN), strain computation, loading series
 - [x] Validation against DICe (Sandia): bias < 0.01 px, RMS < 0.01 px vs
