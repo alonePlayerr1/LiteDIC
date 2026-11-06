@@ -15,10 +15,11 @@ authors:
     family-names: Orlov
     affiliation: "Independent researcher, Moscow, Russia"
     email: iliiawuest@gmail.com
+    orcid: "https://orcid.org/0009-0008-5100-741X"
 repository-code: "https://github.com/alonePlayerr1/LiteDIC"
 license: AGPL-3.0-or-later
-version: 1.0.0
-date-released: 2026-08-26
+version: 2.0.0
+date-released: 2026-11-06
 keywords:
   - digital image correlation
   - IC-GN

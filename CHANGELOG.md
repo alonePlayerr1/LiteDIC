@@ -3,7 +3,12 @@
 All notable changes to LiteDIC are listed here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.0.0] - 2026-11-06
+
+The version described in the paper "LiteDIC: an open digital image
+correlation engine validated against references" (TEST_REPORT.txt of
+2026-10-21: 118 PASS). Major version: the licence changed and the
+mechanics examples left the repository.
 
 ### Changed
 - The repository holds LiteDIC only. The structural mechanics examples
