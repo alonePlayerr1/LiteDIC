@@ -40,15 +40,10 @@ are fixed first.
 6. Open a pull request referencing the issue. Continuous integration runs the
    same test suite automatically.
 
-### Contributor licence agreement
+### Licence of contributions
 
-LiteDIC is distributed under the AGPL-3.0-or-later and is also available
-under a separate commercial licence (see `NOTICE`). To keep that possible,
-code contributions can be merged only after the contributor signs a short
-contributor licence agreement (CLA). The CLA does not take away your rights to
-your own contribution: you keep the copyright and may use your code in any
-way you like. You will be asked to sign it in the pull request. Bug reports,
-questions, documentation suggestions and test images need no CLA.
+By submitting a contribution you agree that it is released under the MIT
+License, like the rest of LiteDIC.
 
 ## Code of conduct
 

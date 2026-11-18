@@ -3,6 +3,16 @@
 All notable changes to LiteDIC are listed here. Versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-11-18
+
+### Changed
+- Licence: MIT instead of AGPL-3.0-or-later. Version 2.0.0 stays under the
+  AGPL; see `NOTICE`.
+- `CONTRIBUTING.md`: no contributor licence agreement is needed any more.
+
+### Added
+- `CODE_OF_CONDUCT.md` (it was referenced but missing).
+
 ## [2.0.0] - 2026-11-06
 
 The version described in the paper "LiteDIC: an open digital image
