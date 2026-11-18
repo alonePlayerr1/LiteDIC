@@ -1,7 +1,7 @@
 # Data sources
 
 Every image and reference result used by LiteDIC, where it comes from, and on what terms it is
-used. The LiteDIC source code itself is under the GNU AGPL v3 (`LICENSE`); the data below keep
+used. The LiteDIC source code itself is under the MIT License (`LICENSE`); the data below keep
 their own terms.
 
 ## Bundled in this repository

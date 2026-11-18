@@ -17,9 +17,9 @@ authors:
     email: iliiawuest@gmail.com
     orcid: "https://orcid.org/0009-0008-5100-741X"
 repository-code: "https://github.com/alonePlayerr1/LiteDIC"
-license: AGPL-3.0-or-later
-version: 2.0.0
-date-released: 2026-11-06
+license: MIT
+version: 2.1.0
+date-released: 2026-11-18
 keywords:
   - digital image correlation
   - IC-GN

@@ -1,42 +1,19 @@
 LiteDIC - a toolbox-free, CPU-only subpixel digital image correlation engine.
 
-Copyright (C) 2026 Iliia Orlov <iliiawuest@gmail.com>
+Copyright (c) 2026 Iliia Orlov
 
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU Affero General Public License as published by the Free
-Software Foundation, either version 3 of the License, or (at your option) any
-later version.
+LiteDIC is released under the MIT License; the full text is in the file
+LICENSE.
 
-This program is distributed in the hope that it will be useful, but WITHOUT ANY
-WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
-PARTICULAR PURPOSE.  See the GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License along
-with this program.  If not, see <https://www.gnu.org/licenses/>.
-
-The full licence text is in the file LICENSE.
-
-
-DUAL LICENSING
---------------
-
-The copyright holder also offers LiteDIC under a separate commercial licence,
-which does not carry the copyleft obligations of the AGPL and permits use in
-closed-source and proprietary products. Enquiries: iliiawuest@gmail.com.
-
-
-CONTRIBUTIONS
--------------
-
-Contributions from outside the copyright holder require a signed contributor
-licence agreement before they can be merged, so that dual licensing remains
-possible. Please open an issue before submitting a pull request.
+Images and reference results bundled for validation keep their own terms;
+see DATA_SOURCES.md. The DICe example data are under the BSD 3-Clause licence
+(9_Validation_DICe/LICENSE_DICe).
 
 
 LICENCE HISTORY
 ---------------
 
-Commit 8057fb2 added an MIT licence file to this repository. That grant never
-took effect: until the licence was changed to the AGPL the repository was private
-and no copy of the software was distributed to anyone under those terms. The
-licence in force is the AGPL-3.0-or-later stated above.
+Version 2.0.0 (2026-11-06) was released under the GNU Affero General Public
+License v3.0 or later. That release, and the copies of it already distributed,
+stay under the AGPL. Starting with version 2.1.0 the copyright holder releases
+LiteDIC under the MIT License.
